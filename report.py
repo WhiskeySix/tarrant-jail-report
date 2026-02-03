@@ -38,13 +38,17 @@ def normalize_ws(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+def looks_like_name(line: str) -> bool:
+    # Typical format: LAST, FIRST MIDDLE (all caps in these PDFs)
+    return bool(re.match(r"^[A-Z][A-Z' -]+,\s*[A-Z][A-Z' -]+(?:\s+[A-Z][A-Z' -]+)?$", line))
+
+
 def is_probably_address(line: str) -> bool:
-    # Addresses / cities / zips that kept showing up as "charges"
+    # Prevent address/city/zip lines from being treated as charges
     if " TX " in line:
         return True
     if re.search(r"\b\d{5}\b", line):  # ZIP
         return True
-    # common street tokens
     street_tokens = [
         " ST", " AVE", " RD", " DR", " LN", " BLVD", " HWY", " PKWY",
         " CIR", " CT", " TRL", " PL", " TER", " WAY", " LOOP"
@@ -54,17 +58,8 @@ def is_probably_address(line: str) -> bool:
     return False
 
 
-def looks_like_name(line: str) -> bool:
-    # Typical format: LAST, FIRST MIDDLE
-    # Keep it strict to avoid false positives
-    return bool(re.match(r"^[A-Z][A-Z' -]+,\s*[A-Z][A-Z' -]+(?:\s+[A-Z][A-Z' -]+)?$", line))
-
-
 def clean_charge(line: str) -> str:
-    # Strip obvious noise
-    line = normalize_ws(line)
-    line = line.replace("  ", " ")
-    return line
+    return normalize_ws(line)
 
 
 # -----------------------------
@@ -75,28 +70,36 @@ def parse_booked_in(lines: list[str]) -> pd.DataFrame:
     current = None
 
     booking_pat = re.compile(r"\b(\d{2}-\d{7})\b")      # e.g. 26-0259182
-    cid_pat = re.compile(r"\b(\d{6,7})\b")              # typical CID length
     date_pat = re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b")
 
-    # Charges in the PDF often appear on lines like:
-    # "26-0259182 DRIVING WHILE INTOXICATED"
+    # Charges sometimes appear on lines like:
+    # "26-0259182 DRIVING WHILE INTOXICATED 2ND"
     booking_charge_pat = re.compile(r"\b\d{2}-\d{7}\b\s+(.+)$")
+
+    offense_keywords = [
+        "ASSAULT", "DWI", "INTOX", "THEFT", "BURGLARY", "ROBBERY", "WARRANT",
+        "POSS", "POSSESSION", "CONTROLLED", "MARIJUANA", "COCAINE", "METH",
+        "FRAUD", "VIOL", "VIOLATION", "RESIST", "EVADING",
+        "WEAPON", "FIREARM", "CRIMINAL", "TRESPASS", "HARASS",
+        "KIDNAP", "SEX", "INDECENCY", "DISORDERLY", "PROBATION",
+        "INJURY", "FAMILY", "CHILD", "ELDERLY"
+    ]
 
     def flush():
         nonlocal current
         if not current:
             return
-        # dedupe charges preserving order
+
+        # Dedupe charges preserving order
         seen = set()
         charges = []
         for c in current["charges"]:
-            if c not in seen:
+            if c and c not in seen:
                 seen.add(c)
                 charges.append(c)
 
         records.append({
             "name": current.get("name", ""),
-            "cid": current.get("cid", ""),
             "booking_no": current.get("booking_no", ""),
             "book_in_date": current.get("book_in_date", ""),
             "charges": charges,
@@ -104,24 +107,17 @@ def parse_booked_in(lines: list[str]) -> pd.DataFrame:
         })
         current = None
 
-    for ln in lines:
-        ln = normalize_ws(ln)
+    for raw in lines:
+        ln = normalize_ws(raw)
 
-        # Start a new person block on a Name line
         if looks_like_name(ln):
             if current:
                 flush()
-            current = {"name": ln, "cid": "", "booking_no": "", "book_in_date": "", "charges": []}
+            current = {"name": ln, "booking_no": "", "book_in_date": "", "charges": []}
             continue
 
         if not current:
             continue
-
-        # Capture CID (best-effort)
-        if not current["cid"]:
-            m = cid_pat.search(ln)
-            if m:
-                current["cid"] = m.group(1)
 
         # Capture booking number (best-effort)
         if not current["booking_no"]:
@@ -143,58 +139,44 @@ def parse_booked_in(lines: list[str]) -> pd.DataFrame:
                 current["charges"].append(charge)
             continue
 
-        # Sometimes charges appear as all-caps lines without booking number.
-        # We'll only accept those if they contain common offense terms and are NOT addresses.
+        # Fallback: accept all-caps lines only if they look like charges and not addresses
         if ln.isupper() and len(ln) > 10 and not is_probably_address(ln):
-            offense_keywords = [
-                "ASSAULT", "DWI", "INTOX", "THEFT", "BURGLARY", "ROBBERY", "WARRANT",
-                "POSS", "POSSESSION", "CONTROLLED", "MARIJUANA", "COCAINE", "METH",
-                "FRAUD", "VIOL", "VIOLATION", "RESIST", "EVADING",
-                "WEAPON", "FIREARM", "CRIMINAL", "TRESPASS", "HARASS",
-                "KIDNAP", "SEX", "INDECENCY", "DISORDERLY", "PROBATION"
-            ]
             if any(k in ln for k in offense_keywords):
                 current["charges"].append(clean_charge(ln))
 
-    # flush last
     if current:
         flush()
 
-    df = pd.DataFrame(records)
-    if df.empty:
-        return df
-
-    # Clean empties
-    df = df.fillna("")
+    df = pd.DataFrame(records).fillna("")
     return df
 
 
 # -----------------------------
-# Parse Bonds
+# Parse Bonds (MATCH BY BOOKING NO)
 # -----------------------------
 def parse_bonds(lines: list[str]) -> pd.DataFrame:
-    # Bonds PDF can be inconsistent; we’ll capture CID and dollar amount.
-    cid_pat = re.compile(r"\b(\d{6,7})\b")
+    # Bonds PDF often includes booking number like 26-0259182 and amount like 1,500.00
+    booking_pat = re.compile(r"\b(\d{2}-\d{7})\b")
     amt_pat = re.compile(r"\b([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})\b")
 
     recs = []
-    for ln in lines:
-        ln = normalize_ws(ln)
-        cid = cid_pat.search(ln)
-        amt = amt_pat.search(ln)
-        if cid and amt:
+    for raw in lines:
+        ln = normalize_ws(raw)
+        b = booking_pat.search(ln)
+        a = amt_pat.search(ln)
+        if b and a:
             recs.append({
-                "cid": cid.group(1),
-                "bond_amount": amt.group(1)
+                "booking_no": b.group(1),
+                "bond_amount": a.group(1)
             })
 
     df = pd.DataFrame(recs)
     if df.empty:
         return df
 
-    # If multiple bonds per CID, keep the max (best practical signal)
+    # If multiple bonds for same booking, keep highest amount
     df["bond_amount_num"] = df["bond_amount"].str.replace(",", "", regex=False).astype(float)
-    df = df.sort_values("bond_amount_num").groupby("cid", as_index=False).tail(1)
+    df = df.sort_values("bond_amount_num").groupby("booking_no", as_index=False).tail(1)
     df = df.drop(columns=["bond_amount_num"])
     return df
 
@@ -218,10 +200,9 @@ def send_email(subject: str, html_body: str):
 
 
 def build_email_html(today_str: str, total: int, top_charges: list[str], bonds_issued: str, df: pd.DataFrame) -> str:
-    # Show a clean table (Name, Top Charge, Bond) but keep full data in the email (optional)
     rows = []
     for _, r in df.iterrows():
-        name = r.get("name", "")
+        name = r.get("name", "") or ""
         top_charge = r.get("top_charge", "") or "N/A"
         bond = r.get("bond_amount", "") or "N/A"
         rows.append(
@@ -274,19 +255,20 @@ def main():
     booked_df = parse_booked_in(booked_lines)
     bonds_df = parse_bonds(bond_lines)
 
-    # Merge bonds onto booked-in using CID (best available key across both)
+    # Merge by booking_no
     merged = booked_df.copy()
-    if not booked_df.empty and not bonds_df.empty and "cid" in booked_df.columns:
-        merged = booked_df.merge(bonds_df, on="cid", how="left")
+    if (not booked_df.empty) and (not bonds_df.empty) and ("booking_no" in booked_df.columns):
+        merged = booked_df.merge(bonds_df, on="booking_no", how="left")
     else:
         merged["bond_amount"] = ""
 
     merged["bond_amount"] = merged["bond_amount"].fillna("")
     total = len(merged)
 
-    # Determine top charges by counting "top_charge"
+    # Determine top charges by counting top_charge
     charge_counts = Counter()
     for c in merged["top_charge"].tolist() if total else []:
+        c = (c or "").strip()
         if c and not is_probably_address(c):
             charge_counts.update([c])
 
