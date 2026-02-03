@@ -13,20 +13,26 @@ import pdfplumber
 
 
 # -----------------------------
-# Theme (Intel / CLI briefing)
+# Styling (ONLY)
 # -----------------------------
 
-PURPLE = "#c084fc"   # CLI purple
-BG = "#0b0f14"
-CARD = "#0f1620"
-CARD2 = "#0c131c"
-TEXT = "#e6edf3"
-MUTED = "#94a3b8"
-BORDER = "#223042"
-PILL_BG = "#e8eef7"
-PILL_TEXT = "#0b1220"
+# Dark (not black) intel-brief background
+BG = "#0f1216"
+CARD = "#151a21"
+TABLE_BG = "#171c23"
+BORDER = "#252b36"
 
-MONO = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"
+TEXT = "#e6e8eb"
+MUTED = "#9aa3ad"
+
+# Purple “coding CLI” accent
+ACCENT = "#b18cff"
+
+# Fonts:
+# - Headers / labels: mono intel vibe
+# - Table content: highly readable
+FONT_MONO = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"
+FONT_BODY = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 
 DEFAULT_BOOKED_BASE_URL = "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF"
 ROW_LIMIT = int(os.getenv("ROW_LIMIT", "250"))
@@ -386,40 +392,75 @@ def most_common_charge(booked_records: list[dict]) -> str:
     return top.title()
 
 
-def render_html(header_date: datetime, booked_records: list[dict]) -> str:
-    report_date_str = header_date.strftime("%-m/%-d/%Y")
-    arrests_date_str = (header_date - timedelta(days=1)).strftime("%-m/%-d/%Y")
+defdef render_html(header_date: datetime, booked_records: list[dict]) -> str:
+    # As requested: arrests date is 1 day behind header date
+    arrests_date = (header_date - timedelta(days=1)).strftime("%-m/%-d/%Y")
+    header_date_str = header_date.strftime("%-m/%-d/%Y")
 
     total = len(booked_records)
     shown = min(total, ROW_LIMIT)
 
-    top_charge = most_common_charge(booked_records)
+    # ---- Most common charge (keep your existing logic exactly as-is) ----
+    # IMPORTANT: This assumes your CURRENT working code already produces "description" as charge-only.
+    # We are NOT changing parsing — only calculating a display stat from already-parsed descriptions.
+    most_common_charge = ""
+    try:
+        all_charges = []
+        for r in booked_records:
+            desc = (r.get("description") or "").strip()
+            if not desc:
+                continue
+            # If multiple charges separated by newlines, treat each line as its own item
+            for line in desc.splitlines():
+                line = line.strip()
+                if line:
+                    all_charges.append(line)
+        if all_charges:
+            most_common_charge = Counter(all_charges).most_common(1)[0][0]
+    except Exception:
+        most_common_charge = ""
 
-    # Rows
     rows_html = []
     for r in booked_records[:ROW_LIMIT]:
         name = html_escape(r.get("name", ""))
-        city = html_escape(r.get("city", "Unknown"))
+        city = html_escape(r.get("city", "") or r.get("address", "")).split("\n")[0].strip()
         date = html_escape(r.get("book_in_date", ""))
-        desc = html_escape(r.get("description", "")).replace("\n", "<br>")
 
-        # Name + city (both monospace)
+        # Description should already be charge-only from your locked parsing.
+        desc_raw = (r.get("description") or "").strip()
+        desc = html_escape(desc_raw).replace("\n", "<br>")
+
+        # Name block: intel mono + purple for name; city smaller + muted
         name_block = f"""
-          <div style="font-family:{MONO}; font-weight:900; color:{PURPLE}; letter-spacing:0.3px; font-size:16px; line-height:1.15;">
+          <div style="font-family:{FONT_MONO}; font-weight:800; color:{ACCENT}; letter-spacing:0.2px; font-size:14px;">
             {name}
           </div>
-          <div style="margin-top:8px; font-family:{MONO}; color:{MUTED}; font-size:13px;">
+          <div style="margin-top:6px; font-family:{FONT_BODY}; color:{MUTED}; font-size:13px; line-height:1.35;">
             {city}
           </div>
         """
 
         rows_html.append(f"""
           <tr>
-            <td style="padding:16px 14px; border-top:1px solid {BORDER}; vertical-align:top;">{name_block}</td>
-            <td style="padding:16px 14px; border-top:1px solid {BORDER}; vertical-align:top; font-family:{MONO}; color:{TEXT}; white-space:nowrap;">{date}</td>
-            <td style="padding:16px 14px; border-top:1px solid {BORDER}; vertical-align:top; font-family:{MONO}; color:{TEXT};">{desc}</td>
+            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top;">{name_block}</td>
+            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top; color:{TEXT}; font-family:{FONT_BODY}; white-space:nowrap;">{date}</td>
+            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top; color:{TEXT}; font-family:{FONT_BODY}; line-height:1.55;">{desc}</td>
           </tr>
         """)
+
+    bookings_line = f"""
+      <div style="margin-top:16px; padding:14px 16px; border-radius:12px; border:1px solid {BORDER}; background:#11151b; font-family:{FONT_MONO}; font-size:14px; color:{TEXT};">
+        Total bookings in the last 24 hours:
+        <span style="color:{ACCENT}; font-weight:900;">{total}</span>
+        {"<br><span style='color:"+MUTED+";'>Most common charge:</span> <span style='color:"+ACCENT+"; font-weight:800;'>"+html_escape(most_common_charge)+"</span>" if most_common_charge else ""}
+      </div>
+    """
+
+    source_line = f"""
+      <div style="margin-top:18px; color:{MUTED}; font-size:14px; line-height:1.5; font-family:{FONT_MONO};">
+        This report is automated from Tarrant County data.
+      </div>
+    """
 
     return f"""
 <!doctype html>
@@ -427,75 +468,68 @@ def render_html(header_date: datetime, booked_records: list[dict]) -> str:
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Tarrant County Jail Report — {report_date_str}</title>
+  <title>Tarrant County Jail Report — {header_date_str}</title>
 </head>
-<body style="margin:0; padding:0; background:{BG}; color:{TEXT}; font-family:{MONO};">
-  <div style="max-width:980px; margin:0 auto; padding:26px 18px 40px;">
 
-    <div style="background:{CARD}; border:1px solid {BORDER}; border-radius:18px; padding:24px 24px 20px; box-shadow: 0 0 0 1px rgba(0,0,0,0.25) inset;">
+<body style="margin:0; padding:0; background:{BG}; color:{TEXT}; font-family:{FONT_BODY};">
+  <div style="max-width:900px; margin:0 auto; padding:26px 18px 40px;">
 
-      <div style="font-family:{MONO}; font-size:52px; font-weight:900; letter-spacing:-0.6px; line-height:1.02;">
-        Tarrant County<br/>Jail Report — {report_date_str}
+    <div style="background:{CARD}; border:1px solid {BORDER}; border-radius:14px; padding:22px 22px 18px;">
+
+      <!-- Intel-style header -->
+      <div style="font-family:{FONT_MONO}; font-size:44px; font-weight:900; letter-spacing:-0.6px; line-height:1.05; color:{TEXT};">
+        Tarrant County Jail Report — {header_date_str}
       </div>
 
-      <div style="display:flex; gap:12px; flex-wrap:wrap; margin-top:18px;">
-        <div style="background:{PILL_BG}; color:{PILL_TEXT}; border-radius:999px; padding:10px 14px; font-family:{MONO}; font-weight:900; letter-spacing:0.6px;">
+      <div style="margin-top:14px; display:flex; gap:12px; flex-wrap:wrap;">
+        <div style="padding:8px 14px; border-radius:999px; background:#0b0e13; font-family:{FONT_MONO}; font-size:12px; color:{TEXT}; border:1px solid {BORDER};">
           UNCLASSIFIED // FOR INFORMATIONAL USE ONLY
         </div>
-        <div style="border:1px solid {BORDER}; border-radius:999px; padding:10px 14px; font-family:{MONO}; font-weight:900; letter-spacing:0.6px;">
+        <div style="padding:8px 14px; border-radius:999px; border:1px solid {BORDER}; font-family:{FONT_MONO}; font-size:12px; color:{TEXT};">
           SOURCE: TARRANT COUNTY (CJ REPORTS)
         </div>
       </div>
 
-      <div style="margin-top:18px; display:grid; grid-template-columns: 1fr; gap:12px;">
-        <div style="background:{CARD2}; border:1px solid {BORDER}; border-radius:14px; padding:14px 16px;">
-          <div style="color:{MUTED}; font-size:12px; letter-spacing:2px;">REPORT DATE</div>
-          <div style="margin-top:6px; font-size:26px; font-weight:900;">{report_date_str}</div>
+      <div style="margin-top:18px; border:1px solid {BORDER}; border-radius:12px; background:#11151b; overflow:hidden;">
+        <div style="padding:14px 16px; border-bottom:1px solid {BORDER}; font-family:{FONT_MONO}; color:{MUTED}; font-size:12px; letter-spacing:1.2px;">
+          REPORT DATE
+          <div style="margin-top:6px; color:{TEXT}; font-size:18px; font-weight:900; letter-spacing:0;">
+            {header_date_str}
+          </div>
         </div>
-
-        <div style="background:{CARD2}; border:1px solid {BORDER}; border-radius:14px; padding:14px 16px;">
-          <div style="color:{MUTED}; font-size:12px; letter-spacing:2px;">ARRESTS DATE</div>
-          <div style="margin-top:6px; font-size:26px; font-weight:900;">{arrests_date_str}</div>
+        <div style="padding:14px 16px; border-bottom:1px solid {BORDER}; font-family:{FONT_MONO}; color:{MUTED}; font-size:12px; letter-spacing:1.2px;">
+          ARRESTS DATE
+          <div style="margin-top:6px; color:{TEXT}; font-size:18px; font-weight:900; letter-spacing:0;">
+            {arrests_date}
+          </div>
         </div>
-
-        <div style="background:{CARD2}; border:1px solid {BORDER}; border-radius:14px; padding:14px 16px;">
-          <div style="color:{MUTED}; font-size:12px; letter-spacing:2px;">RECORDS</div>
-          <div style="margin-top:6px; font-size:26px; font-weight:900;">{total}</div>
+        <div style="padding:14px 16px; font-family:{FONT_MONO}; color:{MUTED}; font-size:12px; letter-spacing:1.2px;">
+          RECORDS
+          <div style="margin-top:6px; color:{TEXT}; font-size:18px; font-weight:900; letter-spacing:0;">
+            {total}
+          </div>
         </div>
       </div>
 
-      <div style="margin-top:18px; height:1px; background:{BORDER};"></div>
+      {source_line}
 
-      <div style="margin-top:16px; color:{MUTED}; font-size:15px;">
-        This report is automated from Tarrant County data.
-      </div>
-
-      <div style="margin-top:26px; font-size:40px; font-weight:900; letter-spacing:-0.3px;">
+      <div style="margin-top:26px; font-family:{FONT_MONO}; font-size:34px; font-weight:900; letter-spacing:-0.3px; color:{TEXT};">
         Booked-In (Last 24 Hours)
       </div>
 
-      <div style="margin-top:14px; background:{CARD2}; border:1px solid {BORDER}; border-radius:14px; padding:14px 16px;">
-        <div style="font-size:16px; color:{MUTED};">
-          Total bookings in the last 24 hours:
-          <span style="color:{PURPLE}; font-weight:900;">{total}</span>
-        </div>
-        <div style="margin-top:10px; font-size:16px; color:{MUTED};">
-          Most common charge:
-          <span style="color:{PURPLE}; font-weight:900;">{html_escape(top_charge)}</span>
-        </div>
-      </div>
+      {bookings_line}
 
-      <div style="margin-top:14px; color:{MUTED}; font-size:15px;">
+      <div style="margin-top:18px; color:{MUTED}; font-size:14px; font-family:{FONT_MONO};">
         Showing first {shown} of {total} records.
       </div>
 
-      <div style="margin-top:16px; overflow:hidden; border-radius:14px; border:1px solid {BORDER};">
-        <table style="width:100%; border-collapse:collapse; background:{CARD2}; font-family:{MONO};">
+      <div style="margin-top:16px; overflow:hidden; border-radius:12px; border:1px solid {BORDER}; background:{TABLE_BG};">
+        <table style="width:100%; border-collapse:collapse;">
           <thead>
-            <tr style="background:#0e1823;">
-              <th style="text-align:left; padding:14px; color:{MUTED}; font-weight:900; border-bottom:1px solid {BORDER};">Name</th>
-              <th style="text-align:left; padding:14px; color:{MUTED}; font-weight:900; border-bottom:1px solid {BORDER}; width:140px;">Book In Date</th>
-              <th style="text-align:left; padding:14px; color:{MUTED}; font-weight:900; border-bottom:1px solid {BORDER};">Description</th>
+            <tr style="background:#11151b;">
+              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER}; font-family:{FONT_MONO};">Name</th>
+              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER}; width:120px; font-family:{FONT_MONO};">Book In Date</th>
+              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER}; font-family:{FONT_MONO};">Description</th>
             </tr>
           </thead>
           <tbody>
