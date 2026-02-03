@@ -50,7 +50,22 @@ def parse_booked(lines):
             elif re.search(r"\d{1,2}/\d{1,2}/\d{4}", line) and not current["date"]:
                 current["date"] = re.search(r"\d{1,2}/\d{1,2}/\d{4}", line).group()
             elif len(line) > 6 and line.isupper():
-                current["charges"].append(line)
+    # Filter out address/location lines that are often ALL CAPS in the PDF
+    address_tokens = [" ST", " AVE", " RD", " DR", " LN", " BLVD", " HWY", " PKWY", " CIR", " CT", " TRL", " PL", " TER"]
+    if (" TX " in line) or re.search(r"\b\d{5}\b", line) or any(tok in line for tok in address_tokens):
+        continue
+
+    # Keep lines that look like criminal charges (keywords-based heuristic)
+    charge_keywords = [
+        "ASSAULT", "DWI", "INTOX", "THEFT", "BURGLARY", "ROBBERY", "WARRANT",
+        "POSS", "POSSESSION", "CONTROLLED", "MARIJUANA", "COCAINE", "METH",
+        "FRAUD", "FAMILY", "VIOL", "VIOLATION", "RESIST", "EVADING",
+        "WEAPON", "FIREARM", "CRIMINAL", "TRESPASS", "HARASS", "KIDNAP",
+        "SEX", "INDECENCY", "PUBLIC", "DISORDERLY", "FAILURE", "PROBATION"
+    ]
+    if any(k in line for k in charge_keywords):
+        current["charges"].append(line)
+
 
     if current:
         records.append(current)
