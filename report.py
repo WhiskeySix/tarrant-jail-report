@@ -8,12 +8,11 @@ from collections import Counter
 import smtplib
 from email.mime.text import MIMEText
 
-
 # -----------------------------
-# REPORT SOURCES (Tarrant County CJ Reports)
+# SOURCES
 # -----------------------------
 BOOKED_IN_BASE = "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/"
-BONDS_DAY1_URL = "https://cjreports.tarrantcounty.com/Reports/BondsIssued/FinalPDF/01.PDF"
+BONDS_DAY1_URL  = "https://cjreports.tarrantcounty.com/Reports/BondsIssued/FinalPDF/01.PDF"
 
 # Rolling window = 3 days of Booked-In PDFs (01, 02, 03)
 BOOKED_IN_DAYS = ["01.PDF", "02.PDF", "03.PDF"]
@@ -46,12 +45,11 @@ def extract_lines_from_pdf(pdf_bytes: bytes) -> list[str]:
 
 
 def looks_like_name(line: str) -> bool:
-    # "LAST, FIRST MIDDLE"
+    # "LAST, FIRST MIDDLE" (all caps)
     return bool(re.match(r"^[A-Z][A-Z' -]+,\s*[A-Z][A-Z' -]+(?:\s+[A-Z][A-Z' -]+)?$", line))
 
 
 def is_probably_address(line: str) -> bool:
-    # Address/city/zip lines that can be ALL CAPS and confuse parsers
     if " TX " in line:
         return True
     if re.search(r"\b\d{5}\b", line):
@@ -75,132 +73,182 @@ def html_escape(s: str) -> str:
     )
 
 
+def clean_person_name(raw: str) -> str:
+    """
+    Bonds PDF text extraction sometimes runs columns together.
+    We force the name to be ONLY "LAST, FIRST [MIDDLE]" and drop anything after.
+    """
+    raw = re.sub(r"\s+", " ", raw).strip()
+
+    # Find first "LAST, FIRST" occurrence
+    m = re.search(r"\b([A-Z][A-Z' -]+,\s*[A-Z][A-Z' -]+)\b", raw)
+    if not m:
+        return raw[:60]  # fallback
+    name = m.group(1).strip()
+
+    # After comma, keep at most 2 tokens (FIRST [MIDDLE]) to avoid swallowing offense
+    if "," in name:
+        last, rest = name.split(",", 1)
+        tokens = [t for t in rest.strip().split(" ") if t]
+        rest = " ".join(tokens[:2])
+        name = f"{last.strip()}, {rest}".strip().strip(",")
+
+    return name
+
+
 # -----------------------------
-# Parse: Booked-In PDFs
-# We key by CID (best for matching)
+# Parse: Booked-In PDFs (CID-based, state machine)
 # -----------------------------
 def parse_booked_in(lines: list[str], source_day: str) -> list[dict]:
     """
-    Returns records like:
-    {
-      cid, name, book_in_date, booking_no, charges(list), top_charge, source_day
-    }
-    """
-    records = []
+    Booked-In report often appears as blocks:
+      NAME
+      ADDRESS / CITY
+      CID  DATE  BOOKING  DESCRIPTION
+      (maybe another CID/DATE/BOOKING/DESCRIPTION line under same name)
 
-    # Pattern seen in your screenshots:
-    # NAME  CID  2/1/2026  26-0259185  DESCRIPTION...
-    row_pat = re.compile(
-        r"^(?P<name>[A-Z][A-Z' -]+,\s*[A-Z][A-Z' -]+(?:\s+[A-Z][A-Z' -]+)?)\s+"
-        r"(?P<cid>\d{6,7})\s+"
+    We'll:
+      - detect NAME lines
+      - then capture any subsequent line that contains: CID + date + booking + desc
+      - attach to the last seen name
+    """
+    records_by_key = {}  # (cid, booking_no) -> record
+
+    cid_date_booking_desc = re.compile(
+        r"\b(?P<cid>\d{6,7})\b\s+"
         r"(?P<date>\d{1,2}/\d{1,2}/\d{4})\s+"
         r"(?P<booking>\d{2}-\d{7})\s+"
         r"(?P<desc>.+)$"
     )
 
-    # Some PDFs break description onto following line(s). We'll accumulate by (cid, booking).
-    by_key = {}
+    booking_desc_only = re.compile(
+        r"\b(?P<booking>\d{2}-\d{7})\b\s+(?P<desc>.+)$"
+    )
+
+    current_name = None
+    last_key = None
 
     for ln in lines:
-        m = row_pat.match(ln)
-        if not m:
+        ln = ln.strip()
+
+        # Skip obvious header lines
+        if "Inmates Booked In During the Past 24 Hours" in ln:
+            continue
+        if ln.startswith("Report Date:") or ln.startswith("Page:"):
             continue
 
-        name = m.group("name").strip()
-        cid = m.group("cid").strip()
-        date = m.group("date").strip()
-        booking = m.group("booking").strip()
-        desc = m.group("desc").strip()
-
-        if not desc or is_probably_address(desc):
+        # If we hit a new name, set context
+        if looks_like_name(ln):
+            current_name = ln
+            last_key = None
             continue
 
-        key = (cid, booking)
-        if key not in by_key:
-            by_key[key] = {
-                "cid": cid,
-                "name": name,
-                "book_in_date": date,
-                "booking_no": booking,
-                "charges": [],
-                "source_day": source_day
-            }
-        by_key[key]["charges"].append(desc)
+        if not current_name:
+            continue
 
-    # finalize
-    for key, rec in by_key.items():
-        # dedupe charges
+        # Main capture line: CID + date + booking + desc
+        m = cid_date_booking_desc.search(ln)
+        if m:
+            cid = m.group("cid")
+            date = m.group("date")
+            booking = m.group("booking")
+            desc = m.group("desc").strip()
+
+            if desc and not is_probably_address(desc):
+                key = (cid, booking)
+                rec = records_by_key.get(key)
+                if not rec:
+                    rec = {
+                        "cid": cid,
+                        "name": current_name,
+                        "book_in_date": date,
+                        "booking_no": booking,
+                        "charges": [],
+                        "source_day": source_day
+                    }
+                    records_by_key[key] = rec
+
+                rec["charges"].append(desc)
+                last_key = key
+            continue
+
+        # Sometimes description wraps, so we allow "booking + desc" on next line
+        m2 = booking_desc_only.search(ln)
+        if m2 and last_key:
+            desc = m2.group("desc").strip()
+            if desc and not is_probably_address(desc):
+                records_by_key[last_key]["charges"].append(desc)
+            continue
+
+        # Another common wrap is a plain ALL CAPS charge line after we captured a booking
+        if last_key and ln.isupper() and len(ln) > 10 and not is_probably_address(ln):
+            records_by_key[last_key]["charges"].append(ln)
+
+    # Finalize: dedupe charges, top_charge
+    out = []
+    for rec in records_by_key.values():
         seen = set()
         charges = []
         for c in rec["charges"]:
-            if c not in seen:
+            c = re.sub(r"\s+", " ", c).strip()
+            if c and c not in seen:
                 seen.add(c)
                 charges.append(c)
         rec["charges"] = charges
         rec["top_charge"] = charges[0] if charges else ""
-        records.append(rec)
+        out.append(rec)
 
-    return records
+    return out
 
 
 # -----------------------------
-# Parse: Bonds Issued Day 1
-# Key by CID (per your screenshot)
+# Parse: Bonds Issued Day 1 (CID-based)
 # -----------------------------
 def parse_bonds_issued(lines: list[str]) -> list[dict]:
     """
-    Bonds report columns (from your screenshot):
-    Bond Number, Status, Amount, Court, CID, Name, Offense, MDate, Bondsmen...
-    We'll extract: cid, name, offense, amount, mdate, bond_number
+    Extract: cid, name, offense, amount, mdate, bond_number
+    NOTE: Bonds PDF does NOT align with bookings by "booking no"
+          CID is our correct join key.
     """
     records = []
 
     amt_pat = re.compile(r"\b([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})\b")
     cid_pat = re.compile(r"\b(\d{6,7})\b")
-    mdate_pat = re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b")
-    bondno_pat = re.compile(r"^\b(\d{6,8})\b")  # bond number at start of row usually
+    date_pat = re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b")
+    bondno_pat = re.compile(r"^\b(\d{6,8})\b")
 
-    # We'll look for lines that contain: bondno + amount + cid + NAME + ... + mdate
-    # Use a tolerant approach:
-    # - bond number = first token if numeric
-    # - amount = first money match
-    # - cid = first 6/7 digit match AFTER amount often, but we’ll just take the first 6/7 digit match
-    # - name = first "LAST, FIRST" pattern in the line
-    # - mdate = last date in the line (magistration date)
-    name_pat = re.compile(r"([A-Z][A-Z' -]+,\s*[A-Z][A-Z' -]+)")
+    # Identify a name somewhere in the line
+    name_pat = re.compile(r"\b([A-Z][A-Z' -]+,\s*[A-Z][A-Z' -]+)\b")
 
     for ln in lines:
-        # Skip headers
         if "List of Bonds Issued" in ln or ln.startswith("Bond Number") or ln.startswith("Page:"):
             continue
 
         amt_m = amt_pat.search(ln)
         cid_m = cid_pat.search(ln)
-        name_m = name_pat.search(ln)
-        dates = mdate_pat.findall(ln)
         bondno_m = bondno_pat.search(ln)
+        dates = date_pat.findall(ln)
+        name_m = name_pat.search(ln)
 
-        if not (amt_m and cid_m and name_m and dates and bondno_m):
+        if not (amt_m and cid_m and bondno_m and dates and name_m):
             continue
 
         bond_number = bondno_m.group(1)
         amount = amt_m.group(1)
         cid = cid_m.group(1)
-        name = name_m.group(1)
-
-        # Choose the last date on the line as MDate
         mdate = dates[-1]
 
-        # Offense is the hardest: typically appears after the name and before the date(s).
-        # We'll take substring between end of name and last date occurrence.
-        name_end = name_m.end()
-        last_date_pos = ln.rfind(mdate)
-        offense = ln[name_end:last_date_pos].strip(" -|")
+        # Clean name (prevent swallowing offense text)
+        name = clean_person_name(name_m.group(1))
 
-        # Clean offense: remove address-ish junk
+        # Offense: take text after name, before the last date token
+        name_pos_end = ln.find(name_m.group(1)) + len(name_m.group(1))
+        last_date_pos = ln.rfind(mdate)
+        offense = ln[name_pos_end:last_date_pos].strip(" -|")
         offense = re.sub(r"\s+", " ", offense).strip()
+
+        # If offense extraction is junk, mark N/A (still keep record)
         if not offense or is_probably_address(offense):
-            # still keep record, but mark offense unknown
             offense = "N/A"
 
         records.append({
@@ -212,7 +260,7 @@ def parse_bonds_issued(lines: list[str]) -> list[dict]:
             "mdate": mdate
         })
 
-    # Dedupe (same bond number repeated across pages)
+    # Dedupe
     seen = set()
     out = []
     for r in records:
@@ -226,7 +274,7 @@ def parse_bonds_issued(lines: list[str]) -> list[dict]:
 
 
 # -----------------------------
-# Email Builder
+# Email
 # -----------------------------
 def build_email(today_str: str,
                 booked_day1: list[dict],
@@ -234,9 +282,8 @@ def build_email(today_str: str,
                 booked_rolling: list[dict],
                 rolling_days: int = 3) -> str:
 
-    # Summary: Booked Day 1
+    # Section 1: Booked Day 1
     total_booked = len(booked_day1)
-
     charge_counts = Counter()
     for r in booked_day1:
         if r.get("top_charge"):
@@ -244,10 +291,10 @@ def build_email(today_str: str,
     top_charges = [c for c, _ in charge_counts.most_common(3)]
     top_charges_text = ", ".join(top_charges) if top_charges else "N/A"
 
-    # Summary: Bonds Day 1
+    # Section 2: Bonds set (Day 1 bonds report)
     total_bonds_set = len(bonds_day1)
 
-    # Rolling match: Bonds Day 1 against Booked-In rolling window by CID
+    # Section 3: Rolling matches by CID
     rolling_by_cid = {}
     for r in booked_rolling:
         rolling_by_cid.setdefault(r["cid"], []).append(r)
@@ -256,31 +303,30 @@ def build_email(today_str: str,
     for b in bonds_day1:
         cid = b["cid"]
         if cid in rolling_by_cid:
-            # pick the most recent-ish entry (best effort) — first is fine for email
-            for booking in rolling_by_cid[cid]:
-                matched.append({
-                    "name": booking["name"],
-                    "cid": cid,
-                    "booking_no": booking.get("booking_no", ""),
-                    "book_in_date": booking.get("book_in_date", ""),
-                    "top_charge": booking.get("top_charge", ""),
-                    "bond_amount": b.get("amount", ""),
-                    "bond_mdate": b.get("mdate", ""),
-                    "bond_offense": b.get("offense", "")
-                })
-                break
+            # pick the first booking record in the rolling window
+            booking = rolling_by_cid[cid][0]
+            matched.append({
+                "name": booking["name"],
+                "booking_no": booking.get("booking_no", ""),
+                "book_in_date": booking.get("book_in_date", ""),
+                "top_charge": booking.get("top_charge", ""),
+                "bond_amount": b.get("amount", ""),
+                "bond_mdate": b.get("mdate", "")
+            })
 
     matched_count = len(matched)
 
-    # HTML tables (keep them readable, not huge)
+    # Tables
     def table_row(cols):
-        tds = "".join([f"<td style='padding:8px;border:1px solid #333'>{html_escape(str(c))}</td>" for c in cols])
+        tds = "".join([
+            f"<td style='padding:8px;border:1px solid #333;vertical-align:top'>{html_escape(str(c))}</td>"
+            for c in cols
+        ])
         return f"<tr>{tds}</tr>"
 
-    # Booked Day 1 table
-    booked_rows = []
-    for r in booked_day1[:60]:  # cap for email readability
-        booked_rows.append(table_row([r["name"], r.get("booking_no",""), r.get("top_charge","")]))
+    booked_rows = [table_row([r["name"], r.get("booking_no",""), r.get("top_charge","")]) for r in booked_day1[:80]]
+    bonds_rows  = [table_row([b["name"], b.get("offense",""), b.get("amount",""), b.get("mdate","")]) for b in bonds_day1[:80]]
+    match_rows  = [table_row([m["name"], m.get("booking_no",""), m.get("book_in_date",""), m.get("top_charge",""), m.get("bond_amount",""), m.get("bond_mdate","")]) for m in matched[:80]]
 
     booked_table = f"""
     <table style="border-collapse:collapse;width:100%;margin-top:8px">
@@ -289,14 +335,10 @@ def build_email(today_str: str,
         <th align="left" style="padding:8px;border:1px solid #333">Booking No</th>
         <th align="left" style="padding:8px;border:1px solid #333">Top Charge</th>
       </tr>
-      {''.join(booked_rows) if booked_rows else ''}
+      {''.join(booked_rows)}
     </table>
     """
 
-    # Bonds Day 1 table
-    bonds_rows = []
-    for b in bonds_day1[:60]:
-        bonds_rows.append(table_row([b["name"], b.get("offense",""), b.get("amount",""), b.get("mdate","")]))
     bonds_table = f"""
     <table style="border-collapse:collapse;width:100%;margin-top:8px">
       <tr style="background:#f0f0f0">
@@ -305,21 +347,9 @@ def build_email(today_str: str,
         <th align="left" style="padding:8px;border:1px solid #333">Bond Set</th>
         <th align="left" style="padding:8px;border:1px solid #333">MDate</th>
       </tr>
-      {''.join(bonds_rows) if bonds_rows else ''}
+      {''.join(bonds_rows)}
     </table>
     """
-
-    # Matches table
-    match_rows = []
-    for m in matched[:60]:
-        match_rows.append(table_row([
-            m["name"],
-            m.get("booking_no",""),
-            m.get("book_in_date",""),
-            m.get("top_charge",""),
-            m.get("bond_amount",""),
-            m.get("bond_mdate","")
-        ]))
 
     matches_table = f"""
     <table style="border-collapse:collapse;width:100%;margin-top:8px">
@@ -331,7 +361,7 @@ def build_email(today_str: str,
         <th align="left" style="padding:8px;border:1px solid #333">Bond Set</th>
         <th align="left" style="padding:8px;border:1px solid #333">MDate</th>
       </tr>
-      {''.join(match_rows) if match_rows else ''}
+      {''.join(match_rows)}
     </table>
     """
 
@@ -353,8 +383,8 @@ def build_email(today_str: str,
       {matches_table}
 
       <p style="color:#666;margin-top:14px">
-        Note: The “Bonds Issued” report reflects bond amounts <b>set</b> in the last 24 hours. It does not indicate bond payment, release, or custody status.
-        Matching is done by CID across a rolling {rolling_days}-day window because bond setting often occurs after booking.
+        Note: The “Bonds Issued” report reflects bond amounts <b>set</b> in the last 24 hours. It does not indicate bond payment,
+        release, or custody status. Matching is done by CID across a rolling {rolling_days}-day window because bond setting often occurs after booking.
       </p>
     </div>
     """
@@ -364,7 +394,7 @@ def build_email(today_str: str,
 def send_email(subject: str, html_body: str):
     smtp_user = os.environ["SMTP_USER"]
     smtp_pass = os.environ["SMTP_PASS"]
-    to_email = os.environ["TO_EMAIL"]
+    to_email   = os.environ["TO_EMAIL"]
 
     msg = MIMEText(html_body, "html")
     msg["Subject"] = subject
@@ -380,13 +410,13 @@ def send_email(subject: str, html_body: str):
 # Main
 # -----------------------------
 def main():
-    # Pull Booked-In Day 1 (for "new bookings")
+    # Day 1 bookings (for "new bookings last 24 hours")
     booked_day1_pdf = fetch_pdf(BOOKED_IN_BASE + "01.PDF")
     booked_day1 = []
     if booked_day1_pdf:
         booked_day1 = parse_booked_in(extract_lines_from_pdf(booked_day1_pdf), source_day="01")
 
-    # Pull Booked-In Day 1/2/3 (rolling window for matching)
+    # Rolling 3-day bookings (for matching)
     booked_rolling = []
     for day in BOOKED_IN_DAYS:
         pdf_bytes = fetch_pdf(BOOKED_IN_BASE + day)
@@ -395,7 +425,7 @@ def main():
         day_id = day.replace(".PDF", "")
         booked_rolling.extend(parse_booked_in(extract_lines_from_pdf(pdf_bytes), source_day=day_id))
 
-    # Pull Bonds Issued Day 1 (last 24 hours)
+    # Bonds set last 24 hours (Day 1 bonds report)
     bonds_pdf = fetch_pdf(BONDS_DAY1_URL)
     bonds_day1 = []
     if bonds_pdf:
