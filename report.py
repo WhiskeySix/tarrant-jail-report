@@ -399,11 +399,69 @@ def render_html(header_date: datetime, booked_records: list[dict]) -> str:
           </tr>
         """)
 
+        # ---- display-only stats (NO parsing changes) ----
+    # City is already what you're showing under the name (your "address" field now holds city-only)
+    city_counts = {}
+    type_counts = {}
+
+    def clean_city(s: str) -> str:
+        s = (s or "").strip()
+        if not s:
+            return "Unknown"
+        # keep it simple: first line only (in case of any accidental wraps)
+        return s.splitlines()[0].strip() or "Unknown"
+
+    def arrest_type_from_desc(desc: str) -> str:
+        """
+        Display-only: take the first charge line, strip numbers/punctuation noise,
+        and use the first 2 words as the 'type' bucket.
+        This does NOT affect parsing or record contents.
+        """
+        first = (desc or "").strip().splitlines()[0].strip()
+        if not first:
+            return "Unknown"
+
+        # remove obvious non-type junk (numbers, CID-ish, zip-ish, etc.)
+        first = re.sub(r"\b\d+\b", " ", first)
+        first = re.sub(r"[^A-Za-z/ ]+", " ", first)  # keep letters and slash
+        first = re.sub(r"\s+", " ", first).strip()
+
+        if not first:
+            return "Unknown"
+
+        parts = first.split()
+        # bucket by first 2 words (e.g. "DRIVING WHILE", "POSS CS", "AGG ASSAULT")
+        return " ".join(parts[:2]).upper()
+
+    for r in booked_records:
+        c = clean_city(r.get("address", ""))
+        city_counts[c] = city_counts.get(c, 0) + 1
+
+        t = arrest_type_from_desc(r.get("description", ""))
+        type_counts[t] = type_counts.get(t, 0) + 1
+
+    most_common_type = max(type_counts.items(), key=lambda kv: kv[1])[0] if type_counts else "Unknown"
+    most_common_city = max(city_counts.items(), key=lambda kv: kv[1])[0] if city_counts else "Unknown"
+
     bookings_line = f"""
       <div style="margin-top:10px; font-size:15px; color:{MUTED};">
         Total bookings in the last 24 hours:
         <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{ORANGE}; font-weight:800;">
           {total}
+        </span>
+      </div>
+
+      <div style="margin-top:6px; font-size:14px; color:{MUTED};">
+        Most common arrest type:
+        <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{TEXT}; font-weight:700;">
+          {html_escape(most_common_type)}
+        </span>
+      </div>
+
+      <div style="margin-top:4px; font-size:14px; color:{MUTED};">
+        City with most arrests:
+        <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{TEXT}; font-weight:700;">
+          {html_escape(most_common_city)}
         </span>
       </div>
     """
