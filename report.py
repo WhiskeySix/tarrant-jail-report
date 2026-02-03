@@ -15,7 +15,7 @@ import pdfplumber
 # Theme / constants
 # -----------------------------
 
-ORANGE = "#f4a261"  # orange used for totals + offender name
+ORANGE = "#f4a261"
 BG = "#111315"
 CARD = "#1b1f23"
 TEXT = "#d7d7d7"
@@ -24,7 +24,6 @@ BORDER = "#2a2f34"
 
 DEFAULT_BOOKED_BASE_URL = "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF"
 ROW_LIMIT = int(os.getenv("ROW_LIMIT", "250"))
-
 
 # -----------------------------
 # Env helpers
@@ -45,10 +44,6 @@ def safe_int(v: str, default: int) -> int:
         return default
 
 
-# -----------------------------
-# Fetch PDF
-# -----------------------------
-
 def fetch_pdf(url: str) -> bytes:
     r = requests.get(url, timeout=60)
     r.raise_for_status()
@@ -56,38 +51,37 @@ def fetch_pdf(url: str) -> bytes:
 
 
 # -----------------------------
-# Parsing regex
+# PDF Parsing (Booked-In)
 # -----------------------------
 
+# Patterns coming out of the PDF text
 NAME_CID_DATE_RE = re.compile(
     r"^(?P<name>[A-Z][A-Z' \-]+,\s*[A-Z0-9][A-Z0-9' \-]+)\s+(?P<cid>\d{6,7})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})$"
 )
 CID_DATE_ONLY_RE = re.compile(r"^(?P<cid>\d{6,7})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})$")
 NAME_ONLY_RE = re.compile(r"^[A-Z][A-Z' \-]+,\s*[A-Z0-9][A-Z0-9' \-]+$")
 
-BOOKING_RE = re.compile(r"\b\d{2}-\d{7}\b")
+BOOKING_RE = re.compile(r"\b\d{2}-\d{7}\b")  # booking no like 26-0259xxx
 
-# City patterns we’ll extract
-CITY_TX_ZIP_RE = re.compile(r"\b([A-Z][A-Z ]+?)\s+TX\s+(\d{5})\b")
-CITY_TX_RE = re.compile(r"\b([A-Z][A-Z ]+?)\s+TX\b")
-CITY_ONLY_RE = re.compile(r"^[A-Z][A-Z ]+$")
+# City/state/zip patterns we can reliably detect
+CITY_STATE_ZIP_RE = re.compile(r"\b([A-Z][A-Z \-'.]+)\s+TX\s+(\d{5})\b", re.IGNORECASE)
+CITY_STATE_RE = re.compile(r"\b([A-Z][A-Z \-'.]+)\s+TX\b", re.IGNORECASE)
 
-# Junk text that sometimes leaks into a row (PDF headers)
-JUNK_SNIPPETS = [
-    "Inmates Booked In During the Past 24 Hours",
-    "Report Date:",
-    "Page:",
-    "Inmate Name",
-    "Identifier",
+# PDF header garbage that leaks into description sometimes
+GARBAGE_HINTS = [
+    "INMATES BOOKED IN DURING THE PAST 24 HOURS",
+    "REPORT DATE:",
+    "PAGE:",
+    "INMATE NAME IDENTIFIER",
+    "BOOK IN DATE",
+    "BOOKING NO",
+    "DESCRIPTION",
     "CID",
-    "Book In Date",
-    "Booking No.",
-    "Description",
 ]
 
 
 def extract_report_date_from_text(text: str) -> datetime | None:
-    m = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", text or "")
+    m = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", text)
     if not m:
         return None
     try:
@@ -96,96 +90,10 @@ def extract_report_date_from_text(text: str) -> datetime | None:
         return None
 
 
-# -----------------------------
-# City + description cleanup
-# -----------------------------
-
-def normalize_spaces(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "")).strip()
-
-
-def clean_description_text(s: str) -> str:
-    """
-    Removes known header/junk phrases and collapses whitespace.
-    """
-    t = s or ""
-    for j in JUNK_SNIPPETS:
-        t = t.replace(j, " ")
-    t = normalize_spaces(t)
-    return t
-
-
-def split_city_from_text(text: str) -> tuple[str, str]:
-    """
-    If text contains 'CITY TX 76102' or 'CITY TX', extract CITY and return:
-      (city, text_without_city_segment)
-    We only remove city segments when they appear as trailing location noise.
-    """
-    t = normalize_spaces(text)
-
-    # Prefer CITY TX ZIP
-    m = CITY_TX_ZIP_RE.search(t)
-    if m:
-        city = normalize_spaces(m.group(1))
-        # Remove only the matched location chunk (leave charge wording intact)
-        start, end = m.span()
-        # If it appears at the end or near-end, strip from that point onward.
-        if end >= len(t) - 1 or (len(t) - end) <= 2:
-            return city, normalize_spaces(t[:start])
-        # If it’s embedded, we still treat it as location noise and remove that substring.
-        removed = normalize_spaces(t[:start] + " " + t[end:])
-        return city, removed
-
-    # CITY TX (no zip)
-    m2 = CITY_TX_RE.search(t)
-    if m2:
-        city = normalize_spaces(m2.group(1))
-        start, end = m2.span()
-        if end >= len(t) - 1 or (len(t) - end) <= 2:
-            return city, normalize_spaces(t[:start])
-        removed = normalize_spaces(t[:start] + " " + t[end:])
-        return city, removed
-
-    return "", t
-
-
-def extract_city_from_address_lines(addr_lines: list[str]) -> str:
-    """
-    Tries to pull CITY from address lines.
-    We return CITY only (no TX, no zip, no street).
-    """
-    city = ""
-
-    for raw in addr_lines or []:
-        line = normalize_spaces(raw)
-
-        # Match CITY TX ZIP
-        m = CITY_TX_ZIP_RE.search(line)
-        if m:
-            city = normalize_spaces(m.group(1))
-            continue
-
-        # Match CITY TX
-        m2 = CITY_TX_RE.search(line)
-        if m2:
-            city = normalize_spaces(m2.group(1))
-            continue
-
-        # Sometimes PDF gives a line that is just "FORT WORTH"
-        if CITY_ONLY_RE.match(line) and len(line) >= 3 and len(line.split()) <= 4:
-            city = line
-
-    return city
-
-
-# -----------------------------
-# PDF parsing
-# -----------------------------
-
 def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     records: list[dict] = []
-    pending = None  # (cid, date) if we see CID DATE before NAME
-    current = None  # current record
+    pending = None  # (cid, date) when CID DATE line appears before NAME
+    current = None
 
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
         first_text = pdf.pages[0].extract_text() or ""
@@ -196,7 +104,7 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
             for ln in lines:
-                # A) NAME CID DATE
+                # Pattern A: NAME CID DATE
                 mA = NAME_CID_DATE_RE.match(ln)
                 if mA:
                     if current:
@@ -206,12 +114,12 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
                         "cid": mA.group("cid").strip(),
                         "book_in_date": mA.group("date").strip(),
                         "addr_lines": [],
-                        "charges": [],
+                        "charge_lines": [],
                     }
                     pending = None
                     continue
 
-                # B) CID DATE then NAME
+                # Pattern B: CID DATE then next line NAME
                 mB = CID_DATE_ONLY_RE.match(ln)
                 if mB:
                     if current:
@@ -226,13 +134,14 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
                         "cid": pending[0],
                         "book_in_date": pending[1],
                         "addr_lines": [],
-                        "charges": [],
+                        "charge_lines": [],
                     }
                     pending = None
                     continue
 
-                # If pending exists but we don’t see the expected NAME next, drop it.
+                # If we were pending and we didn't get a name next, drop pending (prevents gluing junk)
                 if pending and not current:
+                    # once any other line appears, pending is unreliable
                     pending = None
 
                 if not current:
@@ -248,75 +157,182 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
 
 def apply_content_line(rec: dict, ln: str) -> None:
     """
-    Splits lines into address fragments and charges.
-    Booking numbers (e.g., 26-0259229) act like anchors between charge chunks.
+    Collect raw content lines. We keep:
+      - addr_lines (usually street/city lines)
+      - charge_lines (usually charges + sometimes leaked junk)
+    Then in finalize_record() we sanitize + extract city + extract charges cleanly.
     """
-    # Skip obvious junk lines early
-    if any(j in ln for j in JUNK_SNIPPETS):
-        return
-
+    # Booking number anchors: anything before first booking is usually address fragment
     bookings = list(BOOKING_RE.finditer(ln))
     if bookings:
-        # before first booking: usually address
         pre = ln[: bookings[0].start()].strip()
         if pre:
             rec["addr_lines"].append(pre)
 
-        # after bookings: charge chunks
+        # each booking chunk: the text after booking number is charge-ish
         for i, b in enumerate(bookings):
             start = b.end()
             end = bookings[i + 1].start() if i + 1 < len(bookings) else len(ln)
             chunk = ln[start:end].strip(" -\t")
             if chunk:
-                rec["charges"].append(chunk)
+                rec["charge_lines"].append(chunk)
         return
 
-    # no booking number:
-    # if no charges yet, treat as address-ish
-    if not rec["charges"]:
+    # No booking numbers:
+    # If we have not collected any charges yet, this might still be address or first charge line
+    # We collect into both buckets lightly and clean later.
+    if not rec["charge_lines"]:
         rec["addr_lines"].append(ln)
+        rec["charge_lines"].append(ln)  # so we can recover charges if address parsing is weird
         return
 
-    # otherwise charge continuation (wrap)
-    rec["charges"][-1] = (rec["charges"][-1] + " " + ln).strip()
+    # Otherwise treat as continuation for charges
+    rec["charge_lines"].append(ln)
+
+
+def extract_city_from_lines(lines: list[str]) -> str:
+    """
+    Find the best city candidate from any collected lines.
+    Prefer a clear 'CITY TX 76123' style line.
+    """
+    text = " \n ".join([ln.strip() for ln in lines if ln and ln.strip()])
+    if not text:
+        return ""
+
+    m = CITY_STATE_ZIP_RE.search(text)
+    if m:
+        city = m.group(1).strip()
+        return title_city(city)
+
+    m2 = CITY_STATE_RE.search(text)
+    if m2:
+        city = m2.group(1).strip()
+        return title_city(city)
+
+    return ""
+
+
+def title_city(city: str) -> str:
+    """
+    The PDF gives ALL CAPS often. Make it look normal-ish.
+    """
+    city = re.sub(r"\s+", " ", city).strip()
+    if not city:
+        return ""
+    # Title-case but keep internal punctuation
+    return " ".join([w.capitalize() if w.isalpha() else w[:1].capitalize() + w[1:].lower() for w in city.split(" ")])
+
+
+def looks_like_street_address(ln: str) -> bool:
+    """
+    Street addresses almost always start with digits in this dataset.
+    """
+    return bool(re.match(r"^\d{1,6}\s+", ln.strip()))
+
+
+def remove_city_zip_from_charge(text: str) -> str:
+    """
+    Remove trailing 'FORT WORTH TX 76102' style fragments from charges.
+    Also remove ' TX 76102' if present.
+    """
+    t = text
+    # remove full CITY TX ZIP
+    t = re.sub(r"\b[A-Z][A-Z \-'.]+\s+TX\s+\d{5}\b", "", t, flags=re.IGNORECASE).strip()
+    # remove trailing TX ZIP even if city already stripped
+    t = re.sub(r"\bTX\s+\d{5}\b", "", t, flags=re.IGNORECASE).strip()
+    # collapse whitespace
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+
+def strip_pdf_garbage_lines(lines: list[str]) -> list[str]:
+    """
+    Remove header/footer junk lines that leak into extracted text.
+    """
+    cleaned = []
+    for ln in lines:
+        u = ln.upper().strip()
+        if not u:
+            continue
+
+        # remove obvious PDF headers
+        if any(h in u for h in GARBAGE_HINTS):
+            continue
+
+        # remove "Inmate Name" blocks that get repeated inside description
+        if NAME_ONLY_RE.match(u):
+            continue
+
+        # remove "Date: 2/2/2026" etc that comes from header blobs
+        if re.search(r"\bDATE:\s*\d{1,2}/\d{1,2}/\d{4}\b", u):
+            continue
+
+        # remove "PAGE: 3 OF 12"
+        if re.search(r"\bPAGE:\s*\d+\s+OF\s+\d+\b", u):
+            continue
+
+        cleaned.append(ln.strip())
+    return cleaned
+
+
+def extract_clean_charges(addr_lines: list[str], charge_lines: list[str]) -> str:
+    """
+    Produce "Description" = charges only.
+    Strategy:
+      - split charge_lines into sublines
+      - remove header junk
+      - remove street-address-like lines
+      - remove NAME lines
+      - remove city/zip fragments
+      - keep remaining as charge lines
+    """
+    raw = []
+    for ln in charge_lines:
+        if not ln:
+            continue
+        # explode to catch "wrapped" pieces
+        parts = [p.strip() for p in re.split(r"\n| {2,}", ln) if p.strip()]
+        raw.extend(parts)
+
+    raw = strip_pdf_garbage_lines(raw)
+
+    # If a line is actually an address, drop it from charges
+    filtered = []
+    for ln in raw:
+        if looks_like_street_address(ln):
+            continue
+        if NAME_ONLY_RE.match(ln.strip().upper()):
+            continue
+        filtered.append(ln)
+
+    # Join then scrub city/zip patterns
+    joined = " ".join(filtered)
+    joined = re.sub(r"\s+", " ", joined).strip()
+
+    # Remove any city/zip fragments (FORT WORTH TX 761xx) that still leak
+    joined = remove_city_zip_from_charge(joined)
+
+    # Sometimes the charge string still contains a trailing address fragment without TX/ZIP,
+    # but at least this will stop the big offenders. Keep it conservative (don’t over-strip).
+    return joined.strip()
 
 
 def finalize_record(rec: dict) -> dict:
-    # Clean address lines
-    addr_lines = []
-    for a in rec.get("addr_lines", []):
-        a2 = normalize_spaces(a)
-        if a2:
-            addr_lines.append(a2)
+    # Normalize collected lines
+    addr_lines = [re.sub(r"\s+", " ", a).strip() for a in rec.get("addr_lines", []) if a and a.strip()]
+    charge_lines = [a.strip() for a in rec.get("charge_lines", []) if a and a.strip()]
 
-    # Clean charges (and strip junk phrases)
-    charges = []
-    for c in rec.get("charges", []):
-        c2 = clean_description_text(c)
-        if c2:
-            charges.append(c2)
+    # City extraction: look in address lines first, but fall back to charge lines too (PDF sometimes leaks)
+    city = extract_city_from_lines(addr_lines)
+    if not city:
+        city = extract_city_from_lines(charge_lines)
 
-    # 1) City primarily from address lines
-    city = extract_city_from_address_lines(addr_lines)
-
-    # 2) If city is missing OR city leaked into description, extract city from description and strip it out
-    cleaned_charges = []
-    for ch in charges:
-        c_city, stripped = split_city_from_text(ch)
-        if not city and c_city:
-            city = c_city
-        # Ensure description = charge only
-        stripped = clean_description_text(stripped)
-        if stripped:
-            cleaned_charges.append(stripped)
-
-    # final description as multi-line (but charge-only)
-    description = "\n".join([x for x in cleaned_charges if x])
+    description = extract_clean_charges(addr_lines, charge_lines)
 
     return {
-        "name": rec.get("name", ""),
-        "book_in_date": rec.get("book_in_date", ""),
-        "city": (city or "").title() if city else "",  # nicer display
+        "name": rec["name"],
+        "book_in_date": rec["book_in_date"],
+        "city": city,
         "description": description,
     }
 
@@ -345,18 +361,21 @@ def render_html(header_date: datetime, booked_records: list[dict]) -> str:
     rows_html = []
     for r in booked_records[:ROW_LIMIT]:
         name = html_escape(r.get("name", ""))
-        city = html_escape(r.get("city", ""))
-        desc = html_escape(r.get("description", "")).replace("\n", "<br>")
+        city = html_escape(r.get("city", "")).strip()
+        desc = html_escape(r.get("description", "")).strip()
         date = html_escape(r.get("book_in_date", ""))
 
-        # Always render a city line; if missing, keep spacing consistent
-        city_line = city if city else "&nbsp;"
+        city_block = ""
+        if city:
+            city_block = f"""
+              <div style="margin-top:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{TEXT}; font-size:13px; line-height:1.35;">
+                {city}
+              </div>
+            """
 
         name_block = f"""
           <div style="font-weight:800; color:{ORANGE}; letter-spacing:0.2px;">{name}</div>
-          <div style="margin-top:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{TEXT}; font-size:13px; line-height:1.35;">
-            {city_line}
-          </div>
+          {city_block}
         """
 
         rows_html.append(f"""
@@ -445,8 +464,8 @@ def send_email(subject: str, html_body: str) -> None:
     smtp_user = env("SMTP_USER", "").strip()
     smtp_pass = env("SMTP_PASS", "").strip()
 
-    # safe defaults (NOT required vars)
-    smtp_host = env("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com"
+    # safe defaults
+    smtp_host = env("SMTP_HOST", "smtp.gmail.com").strip()
     smtp_port = safe_int(env("SMTP_PORT", "465"), 465)
 
     if not to_email or not smtp_user or not smtp_pass:
@@ -470,7 +489,7 @@ def send_email(subject: str, html_body: str) -> None:
 
 def main():
     booked_base = env("BOOKED_BASE_URL", DEFAULT_BOOKED_BASE_URL).rstrip("/")
-    booked_day = env("BOOKED_DAY", "01").strip()  # keep simple/stable
+    booked_day = env("BOOKED_DAY", "01").strip()  # simple & stable
 
     booked_url = f"{booked_base}/{booked_day}.PDF"
     pdf_bytes = fetch_pdf(booked_url)
