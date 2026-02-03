@@ -27,11 +27,3 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           TO_EMAIL: ${{ secrets.TO_EMAIL }}
         run: python report.py
-
-      - name: Commit data
-        run: |
-          git config user.name "jail-report-bot"
-          git config user.email "jail-report-bot@users.noreply.github.com"
-          git add data/previous.csv || true
-          git commit -m "Update daily report data" || echo "No changes"
-          git push
