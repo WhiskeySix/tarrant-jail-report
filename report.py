@@ -157,37 +157,80 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
 
 def apply_content_line(rec: dict, ln: str) -> None:
     """
-    Collect raw content lines. We keep:
-      - addr_lines (usually street/city lines)
-      - charge_lines (usually charges + sometimes leaked junk)
-    Then in finalize_record() we sanitize + extract city + extract charges cleanly.
+    Splits lines into address fragments and charges.
+    Booking numbers (e.g., 26-0259229) are used as charge anchors when present.
+    If booking numbers are NOT present, we use heuristics:
+      - address-ish lines go to addr
+      - otherwise (especially before any charges exist) treat as first charge
     """
-    # Booking number anchors: anything before first booking is usually address fragment
+
+    # ---- ignore common PDF header/footer junk that leaks into rows ----
+    junk_markers = (
+        "Inmates Booked In During the Past 24 Hours",
+        "Report Date:",
+        "Page:",
+        "Inmate Name Identifier",
+        "CID",
+        "Book In Date",
+        "Booking No.",
+        "Description",
+    )
+    if any(j in ln for j in junk_markers):
+        return
+
+    # ---- helpers ----
+    def looks_like_address(s: str) -> bool:
+        s_up = s.upper()
+
+        # street number / unit patterns
+        if re.search(r"\b\d{1,6}\b", s_up):
+            # common street suffixes
+            if re.search(r"\b(ST|STREET|AVE|AVENUE|RD|ROAD|DR|DRIVE|LN|LANE|BLVD|CT|CIR|PL|PKWY|HWY|WAY)\b", s_up):
+                return True
+
+        # city/state/zip style tails
+        if re.search(r"\bTX\b", s_up) and re.search(r"\b\d{5}\b", s_up):
+            return True
+
+        # some address-only lines are just the street suffix without TX/zip
+        if re.search(r"\b(APT|UNIT|#)\b", s_up):
+            return True
+
+        return False
+
     bookings = list(BOOKING_RE.finditer(ln))
     if bookings:
+        # Anything before the first booking looks like address (street or city line)
         pre = ln[: bookings[0].start()].strip()
         if pre:
             rec["addr_lines"].append(pre)
 
-        # each booking chunk: the text after booking number is charge-ish
+        # Parse each booking chunk as a charge
         for i, b in enumerate(bookings):
             start = b.end()
             end = bookings[i + 1].start() if i + 1 < len(bookings) else len(ln)
             chunk = ln[start:end].strip(" -\t")
             if chunk:
-                rec["charge_lines"].append(chunk)
+                rec["charges"].append(chunk)
         return
 
-    # No booking numbers:
-    # If we have not collected any charges yet, this might still be address or first charge line
-    # We collect into both buckets lightly and clean later.
-    if not rec["charge_lines"]:
+    # No booking number found:
+    if not rec["charges"]:
+        # If it looks like an address line, store as address. Otherwise it's the FIRST charge.
+        if looks_like_address(ln):
+            rec["addr_lines"].append(ln)
+        else:
+            rec["charges"].append(ln)
+        return
+
+    # If we already have charges, decide if this is address leakage or charge continuation
+    if looks_like_address(ln):
+        # late address leakage: store it (we'll reduce to city later)
         rec["addr_lines"].append(ln)
-        rec["charge_lines"].append(ln)  # so we can recover charges if address parsing is weird
         return
 
-    # Otherwise treat as continuation for charges
-    rec["charge_lines"].append(ln)
+    # Otherwise, treat as continuation of the last charge (wrap lines)
+    rec["charges"][-1] = (rec["charges"][-1] + " " + ln).strip()
 
 
 def extract_city_from_lines(lines: list[str]) -> str:
