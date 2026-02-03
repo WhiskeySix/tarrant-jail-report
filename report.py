@@ -1,429 +1,495 @@
+#!/usr/bin/env python3
+"""
+Tarrant County Jail Report (Email HTML)
+
+Outputs a single HTML email with:
+1) New Bookings (last 24 hours) from Booked-In Day 1 (01.PDF)
+2) New Bonds Set (last 24 hours) from Bonds Day 1 (01.PDF)
+3) Rolling Match: Bonds Set vs Booked-In last 3 days (CID match)
+
+Config (env vars optional):
+- BOOKED_BASE_URL  default: https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF
+- BOOKED_DAYS      default: 3   (downloads 01..N PDFs)
+- BONDS_PDF_URL     optional exact URL to bonds day1 PDF
+- BONDS_BASE_URL    optional base url to try if BONDS_PDF_URL not set
+- OUTPUT_HTML       default: report.html
+
+Notes:
+- "Bonds Set" reflects bond amounts SET/ISSUED in the last 24 hours per the report.
+  It does NOT mean paid, released, or custody status.
+"""
+
 import os
-import io
 import re
+import sys
+import io
+import html
+import math
+import datetime as dt
+from collections import Counter, defaultdict
+
 import requests
 import pdfplumber
-from datetime import datetime
-from collections import Counter
-import smtplib
-from email.mime.text import MIMEText
-
-# -----------------------------
-# SOURCES
-# -----------------------------
-BOOKED_IN_BASE = "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/"
-BONDS_DAY1_URL  = "https://cjreports.tarrantcounty.com/Reports/BondsIssued/FinalPDF/01.PDF"
-BOOKED_IN_DAYS = ["01.PDF", "02.PDF", "03.PDF"]  # rolling 3-day window
 
 
-# -----------------------------
-# Helpers
-# -----------------------------
-def fetch_pdf(url: str) -> bytes | None:
-    try:
-        r = requests.get(url, timeout=60)
-        if r.status_code == 404:
-            return None
-        r.raise_for_status()
-        return r.content
-    except Exception as e:
-        print(f"[fetch_pdf] failed {url}: {e}")
-        return None
+# ---------------------------
+# Utilities
+# ---------------------------
 
+def eprint(*args):
+    print(*args, file=sys.stderr)
 
-def extract_lines_from_pdf(pdf_bytes: bytes) -> list[str]:
-    lines: list[str] = []
+def money_clean(s: str) -> str:
+    if not s:
+        return ""
+    s = s.strip()
+    # normalize "1,000.00" style
+    m = re.search(r"\d{1,3}(?:,\d{3})*(?:\.\d{2})", s)
+    return m.group(0) if m else s
+
+def safe(s: str) -> str:
+    return html.escape(s or "")
+
+def most_common_charges(charge_list, n=3):
+    c = Counter([c for c in charge_list if c and c.upper() != "N/A"])
+    return [x for x, _ in c.most_common(n)]
+
+def fetch_pdf_bytes(url: str, timeout=30) -> bytes:
+    r = requests.get(url, timeout=timeout)
+    r.raise_for_status()
+    return r.content
+
+def try_urls(urls):
+    for u in urls:
+        try:
+            r = requests.get(u, timeout=20)
+            if r.status_code == 200 and r.headers.get("content-type", "").lower().startswith("application/pdf"):
+                return u
+            # sometimes pdf content-type is missing; still accept if bytes look like PDF
+            if r.status_code == 200 and r.content[:4] == b"%PDF":
+                return u
+        except Exception:
+            continue
+    return None
+
+def pdf_to_text_lines(pdf_bytes: bytes):
+    lines = []
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         for page in pdf.pages:
             text = page.extract_text() or ""
             for ln in text.splitlines():
-                ln = ln.strip()
-                if ln:
-                    # normalize internal whitespace
-                    lines.append(re.sub(r"\s+", " ", ln))
+                ln = ln.rstrip()
+                if ln.strip():
+                    lines.append(ln)
     return lines
 
 
-def debug_dump(lines: list[str], title: str, n: int = 80):
-    print(f"\n===== DEBUG DUMP: {title} (first {n} lines) =====")
-    for i, ln in enumerate(lines[:n], start=1):
-        print(f"{i:03d}: {ln}")
-    print("===== END DEBUG DUMP =====\n")
+# ---------------------------
+# BOOKED-IN parsing
+# ---------------------------
 
+BOOKED_HEADER_RE = re.compile(r"Inmates Booked In During the Past 24 Hours", re.I)
+BOOKED_COL_RE = re.compile(r"Inmate Name\s+Identifier CID\s+Book In Date\s+Booking No\.\s+Description", re.I)
 
-def looks_like_name(line: str) -> bool:
-    # "LAST, FIRST [MIDDLE]" all caps
-    return bool(re.match(r"^[A-Z][A-Z' -]+,\s*[A-Z][A-Z' -]+(?:\s+[A-Z][A-Z' -]+)?$", line))
+CID_RE = re.compile(r"\b(\d{6,7})\b")              # CID is 6-7 digits in your sample
+BOOKDATE_RE = re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b")
+BOOKNO_RE = re.compile(r"\b(\d{2}-\d{7})\b")       # 26-0259185 format
+ALLCAPS_LINE_RE = re.compile(r"^[A-Z0-9 ,.';()/-]+$")
 
-
-def is_probably_address(line: str) -> bool:
-    if " TX " in line:
-        return True
-    if re.search(r"\b\d{5}\b", line):
-        return True
-    street_tokens = [" ST", " AVE", " RD", " DR", " LN", " BLVD", " HWY", " PKWY", " CIR", " CT", " TRL", " PL", " TER", " WAY", " LOOP"]
-    if any(tok in line for tok in street_tokens) and re.search(r"\b\d+\b", line):
-        return True
-    return False
-
-
-def html_escape(s: str) -> str:
-    return (
-        s.replace("&", "&amp;")
-         .replace("<", "&lt;")
-         .replace(">", "&gt;")
-         .replace('"', "&quot;")
-         .replace("'", "&#39;")
-    )
-
-
-def clean_person_name(raw: str) -> str:
-    raw = re.sub(r"\s+", " ", raw).strip()
-    m = re.search(r"\b([A-Z][A-Z' -]+,\s*[A-Z][A-Z' -]+)\b", raw)
-    if not m:
-        return raw[:60]
-    name = m.group(1).strip()
-
-    # keep FIRST + optional MIDDLE only
-    if "," in name:
-        last, rest = name.split(",", 1)
-        tokens = [t for t in rest.strip().split(" ") if t]
-        rest = " ".join(tokens[:2])
-        name = f"{last.strip()}, {rest}".strip().strip(",")
-
-    return name
-
-
-# -----------------------------
-# Parse: Booked-In PDFs (FIXED)
-# Handles split layout:
-#   - NAME (maybe alone)
-#   - CID (maybe on same line as name or another line)
-#   - DATE + BOOKING + DESCRIPTION (later line)
-#   - description wraps (later lines)
-# -----------------------------
-def parse_booked_in(lines: list[str], source_day: str) -> list[dict]:
+def parse_booked_in(pdf_bytes: bytes):
     """
-    Matches the actual Booked-In PDF layout:
+    Returns list of dicts:
+    {
+      name, cid, book_in_date, booking_no, charges(list[str]), top_charge
+    }
 
-      NAME (all caps "LAST, FIRST ...")
-      address lines...
-      CID + DATE line: 0987623 2/1/2026
-      booking + charge line(s): 26-0259250 DRIVING WHILE INTOXICATED 2ND
-                               26-0259250 SEX OFFENDERS DUTY TO REGISTER...
-
-    Produces one record per (CID, Booking No).
+    This parser follows the actual PDF pattern:
+    - A person row starts with LAST, FIRST...
+    - Address lines follow (we ignore)
+    - Then a line containing CID + BookInDate
+    - Then one or more lines containing BookingNo + Description (sometimes multiple booking lines)
     """
+    lines = pdf_to_text_lines(pdf_bytes)
 
-    records_by_key = {}  # (cid, booking_no) -> record
-
-    cid_date_pat = re.compile(r"^(?P<cid>\d{6,7})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})$")
-    booking_charge_pat = re.compile(r"^(?P<booking>\d{2}-\d{7})\s+(?P<desc>.+)$")
-
-    current_name = None
-    current_cid = None
-    current_date = None
-    last_key = None
-
+    # strip obvious header rows and page markers
+    cleaned = []
     for ln in lines:
-        # Skip obvious headers
-        if "Inmates Booked In During the Past 24 Hours" in ln:
+        if BOOKED_HEADER_RE.search(ln):
             continue
-        if ln.startswith("Report Date:") or ln.startswith("Page:"):
+        if re.search(r"Report Date:", ln):
             continue
-        if ln.startswith("Inmate Name") or ln.startswith("Identifier CID"):
+        if re.search(r"Page:\s+\d+\s+of\s+\d+", ln):
+            continue
+        if BOOKED_COL_RE.search(ln):
+            continue
+        cleaned.append(ln)
+
+    records = []
+    i = 0
+    current = None
+
+    def flush_current():
+        nonlocal current
+        if not current:
+            return
+        # derive top charge
+        charges = current.get("charges", [])
+        current["top_charge"] = charges[0] if charges else "N/A"
+        records.append(current)
+        current = None
+
+    while i < len(cleaned):
+        ln = cleaned[i].strip()
+
+        # New person starts with something like "ARRIAGA, JESSIE"
+        # In the text, it's all-caps and has a comma
+        if "," in ln and ALLCAPS_LINE_RE.match(ln) and not BOOKNO_RE.search(ln) and not CID_RE.search(ln):
+            # if we were building a person, flush before starting new
+            flush_current()
+            current = {
+                "name": ln,
+                "cid": "",
+                "book_in_date": "",
+                "booking_no": "",
+                "charges": []
+            }
+            i += 1
             continue
 
-        # New inmate begins
-        if looks_like_name(ln):
-            current_name = ln.strip()
-            current_cid = None
-            current_date = None
-            last_key = None
-            continue
+        # If we have a current person, look for CID + date line
+        if current:
+            # line containing CID and date
+            cid_m = CID_RE.search(ln)
+            date_m = BOOKDATE_RE.search(ln)
 
-        # Wait until we have a name before trying to bind CID/booking data
-        if not current_name:
-            continue
-
-        # CID + Book In Date line (this is the anchor)
-        m_cd = cid_date_pat.match(ln)
-        if m_cd:
-            current_cid = m_cd.group("cid").strip()
-            current_date = m_cd.group("date").strip()
-            last_key = None
-            continue
-
-        # Booking + Charge line(s)
-        m_bc = booking_charge_pat.match(ln)
-        if m_bc and current_cid and current_date:
-            booking_no = m_bc.group("booking").strip()
-            desc = re.sub(r"\s+", " ", m_bc.group("desc")).strip()
-
-            # Ignore junk that’s clearly not a charge
-            if not desc or is_probably_address(desc):
+            # Many address lines do not contain CID/date, ignore them
+            if cid_m and date_m and not current["cid"]:
+                current["cid"] = cid_m.group(1)
+                current["book_in_date"] = date_m.group(1)
+                i += 1
                 continue
 
-            key = (current_cid, booking_no)
-            rec = records_by_key.get(key)
-            if not rec:
-                rec = {
-                    "cid": current_cid,
-                    "name": current_name,
-                    "book_in_date": current_date,
-                    "booking_no": booking_no,
-                    "charges": [],
-                    "source_day": source_day,
-                }
-                records_by_key[key] = rec
+            # booking number + description lines
+            # These can repeat multiple times for same person
+            bookno_m = BOOKNO_RE.search(ln)
+            if bookno_m:
+                bno = bookno_m.group(1)
+                # description is remainder after booking number
+                desc = ln.split(bno, 1)[-1].strip()
+                desc = desc if desc else "N/A"
 
-            rec["charges"].append(desc)
-            last_key = key
-            continue
+                # set booking_no once (keep first)
+                if not current["booking_no"]:
+                    current["booking_no"] = bno
 
-        # If charges wrap (rare but happens): add uppercase continuation lines
-        if last_key and ln.isupper() and len(ln) > 10 and not is_probably_address(ln):
-            records_by_key[last_key]["charges"].append(ln.strip())
-            continue
+                # keep each description as a charge item
+                if desc and desc.upper() != "N/A":
+                    current["charges"].append(desc)
+                i += 1
+                continue
 
-    # Finalize (dedupe charges + top_charge)
-    out = []
-    for rec in records_by_key.values():
-        seen = set()
-        cleaned = []
-        for c in rec["charges"]:
-            c = re.sub(r"\s+", " ", c).strip()
-            if c and c not in seen:
-                seen.add(c)
-                cleaned.append(c)
-        rec["charges"] = cleaned
-        rec["top_charge"] = cleaned[0] if cleaned else ""
-        out.append(rec)
+        i += 1
 
-    return out
+    flush_current()
+
+    # sanity filter: keep only records with CID + booking no
+    records = [r for r in records if r.get("cid") and r.get("booking_no")]
+
+    return records
+
+def parse_report_date_from_booked(pdf_bytes: bytes):
+    # Get "Report Date: 2/2/2026" from first page text
+    lines = pdf_to_text_lines(pdf_bytes)
+    for ln in lines[:50]:
+        m = re.search(r"Report Date:\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})", ln)
+        if m:
+            return m.group(1)
+    return ""
 
 
-# -----------------------------
-# Parse: Bonds Issued Day 1
-# -----------------------------
-def parse_bonds_issued(lines: list[str]) -> list[dict]:
-    records = []
+# ---------------------------
+# BONDS parsing
+# ---------------------------
 
-    amt_pat = re.compile(r"\b([0-9]{1,3}(?:,[0-9]{3})*\.[0-9]{2})\b")
-    cid_pat = re.compile(r"\b(\d{6,7})\b")
-    date_pat = re.compile(r"\b(\d{1,2}/\d{1,2}/\d{4})\b")
-    bondno_pat = re.compile(r"^\b(\d{6,8})\b")
-    name_pat = re.compile(r"\b([A-Z][A-Z' -]+,\s*[A-Z][A-Z' -]+)\b")
+def parse_bonds(pdf_bytes: bytes):
+    """
+    Attempts to parse Bonds Issued/Set report.
 
+    Expected fields (best-effort):
+    {
+      name, cid, offense, bond_set, mdate
+    }
+
+    Uses regex scanning across extracted lines. The bonds PDF tends to be table-like with:
+    - CID column present
+    - Name like "BOSLEY, ADAM"
+    - Offense text in caps
+    - Amount like 1,000.00
+    - MDate like 2/1/2026
+    """
+    lines = pdf_to_text_lines(pdf_bytes)
+
+    cleaned = []
     for ln in lines:
-        if "List of Bonds Issued" in ln or ln.startswith("Bond Number") or ln.startswith("Page:"):
+        if re.search(r"List of Bonds Issued Over the last 24 Hours", ln, re.I):
+            continue
+        if re.search(r"Page:\s+\d+\s+of\s+\d+", ln):
+            continue
+        # remove column header lines
+        if re.search(r"\bBond Number\b", ln) and re.search(r"\bAmount\b", ln) and re.search(r"\bCID\b", ln):
+            continue
+        cleaned.append(ln.strip())
+
+    recs = []
+    # We’ll detect records by finding NAME + CID + amount + mdate within the next few lines.
+    # Bonds tables often wrap, so we use a sliding window.
+    for idx, ln in enumerate(cleaned):
+        # Candidate line must contain a name
+        if "," not in ln or not ALLCAPS_LINE_RE.match(ln):
             continue
 
-        amt_m = amt_pat.search(ln)
-        cid_m = cid_pat.search(ln)
-        bondno_m = bondno_pat.search(ln)
-        dates = date_pat.findall(ln)
-        name_m = name_pat.search(ln)
+        name = ln.strip()
+        window = " | ".join(cleaned[idx: idx+6])
 
-        if not (amt_m and cid_m and bondno_m and dates and name_m):
+        cid_m = CID_RE.search(window)
+        amt_m = re.search(r"\b\d{1,3}(?:,\d{3})*(?:\.\d{2})\b", window)
+        mdate_m = re.search(r"\b\d{1,2}/\d{1,2}/\d{4}\b", window)
+
+        if not (cid_m and amt_m and mdate_m):
             continue
 
-        bond_number = bondno_m.group(1)
-        amount = amt_m.group(1)
         cid = cid_m.group(1)
-        mdate = dates[-1]
-        name = clean_person_name(name_m.group(1))
+        bond_set = amt_m.group(0)
+        mdate = mdate_m.group(0)
 
-        # offense: between name and last date
-        name_pos_end = ln.find(name_m.group(1)) + len(name_m.group(1))
-        last_date_pos = ln.rfind(mdate)
-        offense = ln[name_pos_end:last_date_pos].strip(" -|")
-        offense = re.sub(r"\s+", " ", offense).strip()
-        if not offense or is_probably_address(offense):
-            offense = "N/A"
+        # offense: try to grab caps words between name and amount, excluding obvious noise
+        # We'll search for the longest ALLCAPS phrase containing letters.
+        offense = "N/A"
+        offense_candidates = []
+        for j in range(idx+1, min(idx+6, len(cleaned))):
+            l2 = cleaned[j]
+            if not l2:
+                continue
+            if re.search(r"\bSurety\b", l2, re.I):
+                continue
+            if CID_RE.search(l2):
+                continue
+            if re.search(r"\b\d{1,3}(?:,\d{3})*(?:\.\d{2})\b", l2):
+                continue
+            if re.search(r"\b\d{1,2}/\d{1,2}/\d{4}\b", l2):
+                continue
+            if ALLCAPS_LINE_RE.match(l2) and re.search(r"[A-Z]{3,}", l2):
+                offense_candidates.append(l2.strip())
 
-        records.append({
-            "bond_number": bond_number,
-            "cid": cid,
+        # choose best candidate: longest string with letters
+        if offense_candidates:
+            offense = max(offense_candidates, key=lambda s: len(re.sub(r"[^A-Z]", "", s)))
+
+        recs.append({
             "name": name,
+            "cid": cid,
             "offense": offense,
-            "amount": amount,
+            "bond_set": bond_set,
             "mdate": mdate
         })
 
-    # dedupe
+    # de-dupe (same CID+amount+mdate+name)
     seen = set()
-    out = []
-    for r in records:
-        k = (r["bond_number"], r["cid"], r["amount"], r["mdate"])
+    uniq = []
+    for r in recs:
+        k = (r["cid"], r["bond_set"], r["mdate"], r["name"])
         if k in seen:
             continue
         seen.add(k)
-        out.append(r)
-    return out
+        uniq.append(r)
+
+    return uniq
 
 
-# -----------------------------
-# Email
-# -----------------------------
-def build_email(today_str: str, booked_day1: list[dict], bonds_day1: list[dict], booked_rolling: list[dict], rolling_days: int = 3) -> str:
-    total_booked = len(booked_day1)
+# ---------------------------
+# HTML rendering
+# ---------------------------
 
-    charge_counts = Counter()
-    for r in booked_day1:
-        if r.get("top_charge"):
-            charge_counts.update([r["top_charge"]])
-    top_charges = [c for c, _ in charge_counts.most_common(3)]
-    top_charges_text = ", ".join(top_charges) if top_charges else "N/A"
+def render_table(headers, rows):
+    th = "".join(f"<th>{safe(h)}</th>" for h in headers)
+    out = ["""
+    <table style="width:100%;border-collapse:collapse;margin:12px 0;font-family:Arial,sans-serif;">
+      <thead>
+        <tr style="background:#1f2937;color:#fff;">
+          %s
+        </tr>
+      </thead>
+      <tbody>
+    """ % th]
 
-    total_bonds_set = len(bonds_day1)
+    for r in rows:
+        tds = "".join(f"<td style='border:1px solid #374151;padding:10px;vertical-align:top;'>{safe(str(c))}</td>" for c in r)
+        out.append(f"<tr style='background:#0b1220;color:#e5e7eb;'>{tds}</tr>")
+    out.append("</tbody></table>")
+    return "".join(out)
 
-    # match by CID
-    rolling_by_cid = {}
-    for r in booked_rolling:
-        rolling_by_cid.setdefault(r["cid"], []).append(r)
+def build_html(title, report_date, booked_today, bonds_today, matches, booked_days):
+    # Charges summary
+    all_top = [r.get("top_charge", "N/A") for r in booked_today]
+    top_charges = most_common_charges(all_top, n=3)
+    top_charges_txt = ", ".join(top_charges) if top_charges else "N/A"
 
-    matched = []
-    for b in bonds_day1:
-        cid = b["cid"]
-        if cid in rolling_by_cid:
-            booking = rolling_by_cid[cid][0]
-            matched.append({
-                "name": booking["name"],
-                "booking_no": booking.get("booking_no", ""),
-                "book_in_date": booking.get("book_in_date", ""),
-                "top_charge": booking.get("top_charge", ""),
-                "bond_amount": b.get("amount", ""),
-                "bond_mdate": b.get("mdate", "")
-            })
+    # Section 1 rows
+    sec1_rows = []
+    for r in booked_today[:50]:
+        sec1_rows.append([r["name"], r["booking_no"], r.get("top_charge","N/A")])
 
-    def table_row(cols):
-        tds = "".join([f"<td style='padding:8px;border:1px solid #333;vertical-align:top'>{html_escape(str(c))}</td>" for c in cols])
-        return f"<tr>{tds}</tr>"
+    # Section 2 rows
+    sec2_rows = []
+    for b in bonds_today[:50]:
+        sec2_rows.append([b["name"], b.get("offense","N/A"), b.get("bond_set",""), b.get("mdate","")])
 
-    booked_rows = [table_row([r["name"], r.get("booking_no",""), r.get("top_charge","")]) for r in booked_day1[:80]]
-    bonds_rows  = [table_row([b["name"], b.get("offense",""), b.get("amount",""), b.get("mdate","")]) for b in bonds_day1[:80]]
-    match_rows  = [table_row([m["name"], m.get("booking_no",""), m.get("book_in_date",""), m.get("top_charge",""), m.get("bond_amount",""), m.get("bond_mdate","")]) for m in matched[:80]]
+    # Section 3 rows
+    sec3_rows = []
+    for m in matches[:75]:
+        sec3_rows.append([
+            m["name"],
+            m["booking_no"],
+            m["book_in_date"],
+            m["top_charge"],
+            m["bond_set"],
+            m["mdate"],
+        ])
 
-    booked_table = f"""
-    <table style="border-collapse:collapse;width:100%;margin-top:8px">
-      <tr style="background:#f0f0f0">
-        <th align="left" style="padding:8px;border:1px solid #333">Name</th>
-        <th align="left" style="padding:8px;border:1px solid #333">Booking No</th>
-        <th align="left" style="padding:8px;border:1px solid #333">Top Charge</th>
-      </tr>
-      {''.join(booked_rows)}
-    </table>
-    """
+    booked_days_note = f"{booked_days} days" if booked_days else "3 days"
 
-    bonds_table = f"""
-    <table style="border-collapse:collapse;width:100%;margin-top:8px">
-      <tr style="background:#f0f0f0">
-        <th align="left" style="padding:8px;border:1px solid #333">Name</th>
-        <th align="left" style="padding:8px;border:1px solid #333">Offense (Bonds Report)</th>
-        <th align="left" style="padding:8px;border:1px solid #333">Bond Set</th>
-        <th align="left" style="padding:8px;border:1px solid #333">MDate</th>
-      </tr>
-      {''.join(bonds_rows)}
-    </table>
-    """
+    html_out = f"""
+    <div style="max-width:900px;margin:0 auto;background:#0b1220;color:#e5e7eb;padding:28px;border-radius:12px;font-family:Arial,sans-serif;">
+      <h1 style="margin:0 0 8px 0;font-size:34px;letter-spacing:0.2px;">{safe(title)} — {safe(report_date or "")}</h1>
 
-    matches_table = f"""
-    <table style="border-collapse:collapse;width:100%;margin-top:8px">
-      <tr style="background:#f0f0f0">
-        <th align="left" style="padding:8px;border:1px solid #333">Name</th>
-        <th align="left" style="padding:8px;border:1px solid #333">Booking No</th>
-        <th align="left" style="padding:8px;border:1px solid #333">Book In Date</th>
-        <th align="left" style="padding:8px;border:1px solid #333">Top Charge</th>
-        <th align="left" style="padding:8px;border:1px solid #333">Bond Set</th>
-        <th align="left" style="padding:8px;border:1px solid #333">MDate</th>
-      </tr>
-      {''.join(match_rows)}
-    </table>
-    """
+      <div style="margin:18px 0 10px 0;padding:14px;background:#111827;border:1px solid #374151;border-radius:10px;">
+        <div style="font-size:18px;font-weight:700;">1) New Bookings (Last 24 Hours)</div>
+        <div style="margin-top:8px;font-size:16px;"><b>{len(booked_today)}</b> new bookings</div>
+        <div style="margin-top:6px;font-size:16px;"><b>Top charges:</b> {safe(top_charges_txt)}</div>
+      </div>
+      {render_table(["Name","Booking No","Top Charge"], sec1_rows) if sec1_rows else "<div style='padding:12px;background:#111827;border:1px solid #374151;border-radius:10px;'>No bookings parsed from Booked-In Day 1. If this is wrong, the parser didn’t find CID/BookingNo rows.</div>"}
 
-    html = f"""
-    <div style="font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.45">
-      <h2 style="margin:0 0 10px 0">Tarrant County Jail Report — {html_escape(today_str)}</h2>
+      <div style="margin:22px 0 10px 0;padding:14px;background:#111827;border:1px solid #374151;border-radius:10px;">
+        <div style="font-size:18px;font-weight:700;">2) New Bonds Set (Last 24 Hours)</div>
+        <div style="margin-top:8px;font-size:16px;"><b>{len(bonds_today)}</b> bonds set</div>
+      </div>
+      {render_table(["Name","Offense (Bonds Report)","Bond Set","MDate"], sec2_rows) if sec2_rows else "<div style='padding:12px;background:#111827;border:1px solid #374151;border-radius:10px;'>No bonds parsed. This usually means the bonds PDF URL is wrong or the format changed.</div>"}
 
-      <h3 style="margin:16px 0 6px 0">1) New Bookings (Last 24 Hours)</h3>
-      <p style="margin:0 0 6px 0"><b>{total_booked}</b> new bookings</p>
-      <p style="margin:0 0 6px 0"><b>Top charges:</b> {html_escape(top_charges_text)}</p>
-      {booked_table}
+      <div style="margin:22px 0 10px 0;padding:14px;background:#111827;border:1px solid #374151;border-radius:10px;">
+        <div style="font-size:18px;font-weight:700;">3) Rolling Match (Bonds Set vs. Booked-In Last {safe(booked_days_note)})</div>
+        <div style="margin-top:8px;font-size:16px;">
+          <b>{len(matches)}</b> bond records matched to someone booked-in within the last {safe(booked_days_note)} (matched by CID)
+        </div>
+      </div>
+      {render_table(["Name","Booking No","Book In Date","Top Charge","Bond Set","MDate"], sec3_rows) if sec3_rows else "<div style='padding:12px;background:#111827;border:1px solid #374151;border-radius:10px;'>No matches found. If you expect matches, it means CID extraction failed in either Booked-In PDFs or Bonds PDF.</div>"}
 
-      <h3 style="margin:18px 0 6px 0">2) New Bonds Set (Last 24 Hours)</h3>
-      <p style="margin:0 0 6px 0"><b>{total_bonds_set}</b> bonds set</p>
-      {bonds_table}
-
-      <h3 style="margin:18px 0 6px 0">3) Rolling Match (Bonds Set vs. Booked-In Last {rolling_days} Days)</h3>
-      <p style="margin:0 0 6px 0"><b>{len(matched)}</b> bond records matched to someone booked-in within the last {rolling_days} days (matched by CID)</p>
-      {matches_table}
-
-      <p style="color:#666;margin-top:14px">
-        Note: “Bonds Issued” reflects bond amounts <b>set</b> in the last 24 hours. It does not indicate bond payment, release, or custody status.
-        Matching is done by CID across a rolling {rolling_days}-day window because bond setting often occurs after booking.
-      </p>
+      <div style="margin-top:18px;color:#9ca3af;font-size:14px;line-height:1.4;">
+        <b>Note:</b> The “Bonds Issued/Set” report reflects bond amounts <b>set</b> in the last 24 hours. It does <u>not</u> indicate bond payment, release, or custody status.
+        Matching is done by <b>CID</b> across a rolling {safe(booked_days_note)} window because bond setting can occur after booking.
+      </div>
     </div>
     """
-    return html
+    return html_out
 
 
-def send_email(subject: str, html_body: str):
-    smtp_user = os.environ["SMTP_USER"]
-    smtp_pass = os.environ["SMTP_PASS"]
-    to_email   = os.environ["TO_EMAIL"]
-
-    msg = MIMEText(html_body, "html")
-    msg["Subject"] = subject
-    msg["From"] = smtp_user
-    msg["To"] = to_email
-
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as s:
-        s.login(smtp_user, smtp_pass)
-        s.send_message(msg)
-
-
-# -----------------------------
+# ---------------------------
 # Main
-# -----------------------------
+# ---------------------------
+
 def main():
-    debug = os.environ.get("DEBUG_PDF", "0") == "1"
+    booked_base = os.getenv("BOOKED_BASE_URL", "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF").rstrip("/")
+    booked_days = int(os.getenv("BOOKED_DAYS", "3"))
+    output_html = os.getenv("OUTPUT_HTML", "report.html")
 
-    # Day 1 bookings
-    booked_day1_pdf = fetch_pdf(BOOKED_IN_BASE + "01.PDF")
-    booked_day1 = []
-    if booked_day1_pdf:
-        lines = extract_lines_from_pdf(booked_day1_pdf)
-        if debug:
-            debug_dump(lines, "BOOKED-IN DAY 1 RAW LINES")
-        booked_day1 = parse_booked_in(lines, source_day="01")
+    # Download booked-in PDFs Day 1..N
+    booked_pdfs = []
+    for d in range(1, booked_days + 1):
+        url = f"{booked_base}/{d:02d}.PDF"
+        eprint(f"[booked-in] downloading: {url}")
+        booked_pdfs.append((d, url, fetch_pdf_bytes(url)))
 
-        # If still zero, ALWAYS dump the first 80 lines (saves credits)
-        if len(booked_day1) == 0:
-            debug_dump(lines, "BOOKED-IN DAY 1 RAW LINES (AUTO DUMP BECAUSE ZERO BOOKINGS)")
+    # Day 1 report date (for title)
+    report_date = parse_report_date_from_booked(booked_pdfs[0][2])
 
-    # Rolling bookings (01/02/03)
-    booked_rolling = []
-    for day in BOOKED_IN_DAYS:
-        pdf_bytes = fetch_pdf(BOOKED_IN_BASE + day)
-        if not pdf_bytes:
+    # Parse booked records for each day
+    booked_by_day = {}
+    for d, url, bts in booked_pdfs:
+        recs = parse_booked_in(bts)
+        booked_by_day[d] = recs
+        eprint(f"[booked-in] day {d:02d} parsed records: {len(recs)}")
+
+    booked_today = booked_by_day.get(1, [])
+    booked_last_n = []
+    for d in range(1, booked_days + 1):
+        booked_last_n.extend(booked_by_day.get(d, []))
+
+    # Index booked-in by CID for matching (keep first occurrence, but also preserve booking no/date)
+    booked_by_cid = {}
+    for r in booked_last_n:
+        cid = r.get("cid")
+        if cid and cid not in booked_by_cid:
+            booked_by_cid[cid] = r
+
+    # Bonds PDF URL resolution
+    bonds_pdf_url = os.getenv("BONDS_PDF_URL", "").strip()
+    if not bonds_pdf_url:
+        # Try common bases/paths (you can override with BONDS_PDF_URL once you know it)
+        # If you know the correct endpoint, set BONDS_PDF_URL and you're done.
+        candidates = []
+        base_override = os.getenv("BONDS_BASE_URL", "").strip().rstrip("/")
+        if base_override:
+            candidates.append(f"{base_override}/01.PDF")
+
+        # common guesses
+        candidates.extend([
+            "https://cjreports.tarrantcounty.com/Reports/BondsIssued/FinalPDF/01.PDF",
+            "https://cjreports.tarrantcounty.com/Reports/BondIssued/FinalPDF/01.PDF",
+            "https://cjreports.tarrantcounty.com/Reports/JailBonds/FinalPDF/01.PDF",
+            "https://cjreports.tarrantcounty.com/Reports/Bonds/FinalPDF/01.PDF",
+            "https://cjreports.tarrantcounty.com/Reports/JailBond/FinalPDF/01.PDF",
+        ])
+
+        bonds_pdf_url = try_urls(candidates) or ""
+
+    bonds_today = []
+    if bonds_pdf_url:
+        eprint(f"[bonds] downloading: {bonds_pdf_url}")
+        bonds_bytes = fetch_pdf_bytes(bonds_pdf_url)
+        bonds_today = parse_bonds(bonds_bytes)
+        eprint(f"[bonds] parsed records: {len(bonds_today)}")
+    else:
+        eprint("[bonds] ERROR: could not auto-detect bonds PDF URL. Set BONDS_PDF_URL env var.")
+
+    # Rolling match by CID
+    matches = []
+    for b in bonds_today:
+        cid = b.get("cid")
+        if not cid:
             continue
-        lines = extract_lines_from_pdf(pdf_bytes)
-        day_id = day.replace(".PDF", "")
-        booked_rolling.extend(parse_booked_in(lines, source_day=day_id))
+        br = booked_by_cid.get(cid)
+        if not br:
+            continue
+        matches.append({
+            "cid": cid,
+            "name": br.get("name") or b.get("name",""),
+            "booking_no": br.get("booking_no",""),
+            "book_in_date": br.get("book_in_date",""),
+            "top_charge": br.get("top_charge","N/A"),
+            "bond_set": b.get("bond_set",""),
+            "mdate": b.get("mdate",""),
+        })
 
-    # Bonds day 1
-    bonds_day1 = []
-    bonds_pdf = fetch_pdf(BONDS_DAY1_URL)
-    if bonds_pdf:
-        bonds_lines = extract_lines_from_pdf(bonds_pdf)
-        bonds_day1 = parse_bonds_issued(bonds_lines)
+    # Title date (fallback)
+    title = "Tarrant County Jail Report"
+    if not report_date:
+        report_date = dt.datetime.now().strftime("%b %d, %Y")
 
-    today_str = datetime.now().strftime("%b %d, %Y")
-    subject = f"Tarrant County Jail Report — {today_str}"
-    html = build_email(today_str, booked_day1, bonds_day1, booked_rolling, rolling_days=3)
-    send_email(subject, html)
+    html_out = build_html(title, report_date, booked_today, bonds_today, matches, booked_days)
 
+    with open(output_html, "w", encoding="utf-8") as f:
+        f.write(html_out)
+
+    eprint(f"[ok] wrote {output_html}")
 
 if __name__ == "__main__":
     main()
