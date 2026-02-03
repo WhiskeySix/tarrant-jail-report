@@ -2,8 +2,8 @@ name: Daily Tarrant Jail Report
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 13 * * *" # 8am Central (GitHub runs UTC)
+  # schedule:
+  #   - cron: "15 13 * * *"   # 7:15am CST (adjust if you want)
 
 jobs:
   run-report:
@@ -21,19 +21,30 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pdfplumber requests
+          pip install -r requirements.txt
 
       - name: Run report
         env:
-          # Email (secrets)
+          # Email (Secrets)
           TO_EMAIL: ${{ secrets.TO_EMAIL }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
 
-          # Data sources (NOT secrets)
-          BOOKED_BASE_URL: https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF
-          BOOKED_DAYS: "1"
-          TABLE_LIMIT: "150"
+          # SMTP host/port (optional; defaults work for Gmail)
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
 
+          # Booked-In source (use either BOOKED_PDF_URL OR BOOKED_BASE_URL + BOOKED_DAY)
+          BOOKED_BASE_URL: "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF"
+          BOOKED_DAY: "01"
+
+          # Output controls
+          TABLE_LIMIT: "150"
         run: |
           python report.py
+
+      - name: Upload HTML output
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-html
+          path: report.html
