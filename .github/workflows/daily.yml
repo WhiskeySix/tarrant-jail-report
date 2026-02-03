@@ -1,16 +1,16 @@
 name: Daily Tarrant Jail Report
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "30 12 * * *" # 12:30 UTC = 6:30am CT (adjust if you want)
+    - cron: "0 12 * * *" # daily at 12:00 UTC
+  workflow_dispatch:
 
 jobs:
   run-report:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Setup Python
@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          python -m pip install requests pdfplumber
 
       - name: Run report
         env:
@@ -29,15 +29,9 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
 
-          # safe defaults (prevents the missing-env failures you kept seeing)
-          SMTP_HOST: smtp.gmail.com
-          SMTP_PORT: "465"
-
-          # data source
+          # Optional overrides (safe to leave as-is)
           BOOKED_BASE_URL: https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF
           BOOKED_DAY: "01"
-
-          # display
           ROW_LIMIT: "250"
         run: |
           python report.py
