@@ -5,6 +5,7 @@ import smtplib
 import requests
 from io import BytesIO
 from datetime import datetime, timedelta
+from collections import Counter
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -23,8 +24,31 @@ MUTED = "#a8b0b7"
 BORDER = "#2a2f34"
 
 DEFAULT_BOOKED_BASE_URL = "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF"
-DEFAULT_BOOKED_DAYS = 1
 ROW_LIMIT = int(os.getenv("ROW_LIMIT", "250"))
+
+# Ignore these when they show up inside extracted text (header/footer noise)
+NOISE_SUBSTRINGS = [
+    "Inmates Booked In During the Past 24 Hours",
+    "Inmate Name Identifier",
+    "Booking No.",
+    "Report Date:",
+    "Page:",
+    "Description",
+    "Book In Date",
+    "CID",
+]
+
+# Matches "FORT WORTH TX 76137" (city/state/zip) or "HURST TX 76053"
+CITY_STATE_ZIP_RE = re.compile(r"\b([A-Z][A-Z ]+?)\s+TX\s+(\d{5})\b")
+
+# Remove any trailing "... CITY TX 76137" from the *charge text*
+TRAILING_CITY_ZIP_RE = re.compile(r"\s+[A-Z][A-Z ]+\s+TX\s+\d{5}\s*$")
+
+# Remove the CJ header/footer block if it gets glued into a cell
+HEADER_BLOCK_RE = re.compile(
+    r"Inmates Booked In During the Past 24 Hours.*?(?:Description|$)",
+    re.IGNORECASE | re.DOTALL
+)
 
 
 def env(name: str, default: str = "") -> str:
@@ -48,6 +72,15 @@ def fetch_pdf(url: str) -> bytes:
     return r.content
 
 
+def html_escape(s: str) -> str:
+    return (
+        (s or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
 # -----------------------------
 # PDF Parsing (Booked-In)
 # -----------------------------
@@ -58,25 +91,9 @@ NAME_CID_DATE_RE = re.compile(
 CID_DATE_ONLY_RE = re.compile(r"^(?P<cid>\d{6,7})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})$")
 NAME_ONLY_RE = re.compile(r"^[A-Z][A-Z' \-]+,\s*[A-Z0-9][A-Z0-9' \-]+$")
 BOOKING_RE = re.compile(r"\b\d{2}-\d{7}\b")
-CITY_STATE_ZIP_RE = re.compile(r"\b([A-Z][A-Z ]+?)\s+TX\s+(\d{5})\b")
-STREET_RE = re.compile(
-    r"\b\d{1,6}\s+[A-Z0-9#'./-]+\s+(?:AVE|AV|ST|RD|DR|LN|PL|CT|BLVD|HWY|PKWY|WAY|TRL|CIR|TER|PK|LOOP|FWY)\b",
-    re.IGNORECASE
-)
 
-def extract_city(addr_lines: list[str]) -> str:
-    """
-    From address lines, return CITY only (usually found in line like: 'FORT WORTH TX 76131').
-    If not found, return empty string.
-    """
-    for ln in reversed(addr_lines):
-        m = CITY_STATE_ZIP_RE.search(ln.upper())
-        if m:
-            return m.group(1).strip()
-    return ""
 
 def extract_report_date_from_text(text: str) -> datetime | None:
-    # Finds first date like 2/2/2026 on the first page header if present
     m = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", text)
     if not m:
         return None
@@ -86,13 +103,64 @@ def extract_report_date_from_text(text: str) -> datetime | None:
         return None
 
 
+def is_noise_line(ln: str) -> bool:
+    if not ln:
+        return True
+    for s in NOISE_SUBSTRINGS:
+        if s.lower() in ln.lower():
+            return True
+    return False
+
+
+def clean_charge_text(s: str) -> str:
+    """
+    Make Description contain ONLY the charge text.
+    Removes:
+      - CJ report header/footer blocks that get glued into the cell
+      - trailing CITY TX ZIP
+      - extra whitespace
+    """
+    if not s:
+        return ""
+
+    s = HEADER_BLOCK_RE.sub("", s)  # drop big header block if present
+    for token in NOISE_SUBSTRINGS:
+        # extra safety: remove fragments if they appear
+        s = re.sub(re.escape(token), "", s, flags=re.IGNORECASE)
+
+    s = re.sub(r"\s+", " ", s).strip()
+
+    # Remove trailing "FORT WORTH TX 76137" style endings
+    s = TRAILING_CITY_ZIP_RE.sub("", s).strip()
+
+    return s
+
+
+def extract_city_only(addr_lines: list[str]) -> str:
+    """
+    You said: show CITY only under name.
+    We pull it from the address lines.
+    Examples:
+      "4837 THISTLEDOWN DR, FORT WORTH TX 76137" -> "FORT WORTH"
+      "HURST TX 76053" -> "HURST"
+    """
+    # Search from bottom up: city is usually on the last line
+    for line in reversed(addr_lines or []):
+        line2 = re.sub(r"\s+", " ", (line or "")).strip().upper()
+        m = CITY_STATE_ZIP_RE.search(line2)
+        if m:
+            return m.group(1).strip()
+
+    # If we can’t find it, return empty (don’t print junk)
+    return ""
+
+
 def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     records: list[dict] = []
     pending = None  # holds (cid, date) when we see CID DATE line before NAME
     current = None  # current record dict
 
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-        # report date from first page text if possible
         first_text = pdf.pages[0].extract_text() or ""
         report_dt = extract_report_date_from_text(first_text) or datetime.now()
 
@@ -101,6 +169,9 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
             for ln in lines:
+                if is_noise_line(ln):
+                    continue
+
                 # Pattern A: NAME CID DATE
                 mA = NAME_CID_DATE_RE.match(ln)
                 if mA:
@@ -136,13 +207,10 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
                     pending = None
                     continue
 
-                # If we hit a new NAME line unexpectedly while pending exists, treat pending as junk
-                if pending and not current and ln:
-                    # don’t glue pending into someone else's description
-                    # we drop pending if the expected NAME doesn’t come next
+                # If we hit other lines while pending exists, drop pending so it doesn’t pollute content
+                if pending and not current:
                     pending = None
 
-                # Content lines (address/charges) for the current record
                 if not current:
                     continue
 
@@ -156,106 +224,133 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
 
 def apply_content_line(rec: dict, ln: str) -> None:
     """
-    Splits lines into address fragments and charges.
-    Booking numbers (e.g., 26-0259229) are used as charge anchors.
+    Split into address fragments and charges.
+    Booking numbers are charge anchors, but the extracted line can contain:
+      - address fragments
+      - charge fragments
+      - city/zip fragments
+      - header/footer fragments
+    We sanitize later in finalize_record + clean_charge_text.
     """
+    if is_noise_line(ln):
+        return
+
     bookings = list(BOOKING_RE.finditer(ln))
     if bookings:
-        # Anything before the first booking looks like address (street or city line)
+        # Anything before the first booking is usually address-ish
         pre = ln[: bookings[0].start()].strip()
-        if pre:
+        if pre and not is_noise_line(pre):
             rec["addr_lines"].append(pre)
 
-        # Parse each booking chunk as a charge
+        # Parse each booking chunk as a charge candidate
         for i, b in enumerate(bookings):
             start = b.end()
             end = bookings[i + 1].start() if i + 1 < len(bookings) else len(ln)
             chunk = ln[start:end].strip(" -\t")
-            if chunk:
+            if chunk and not is_noise_line(chunk):
                 rec["charges"].append(chunk)
         return
 
-    # No booking number found; decide whether it's address or continuation
-    # Heuristic: if we haven't collected any charges yet, lines with digits are usually address.
+    # No booking number found:
+    # If we have no charges yet, treat as address lines
     if not rec["charges"]:
-        rec["addr_lines"].append(ln)
+        if not is_noise_line(ln):
+            rec["addr_lines"].append(ln)
         return
 
-    # Otherwise, treat as continuation of the last charge (wrap lines)
-    rec["charges"][-1] = (rec["charges"][-1] + " " + ln).strip()
+    # Otherwise treat as continuation of last charge (wrap line)
+    if not is_noise_line(ln):
+        rec["charges"][-1] = (rec["charges"][-1] + " " + ln).strip()
 
 
 def finalize_record(rec: dict) -> dict:
-    # Clean up charges: collapse excessive whitespace and strip trailing address/city garbage
-    charges = []
-    for c in rec["charges"]:
-        c2 = re.sub(r"\s+", " ", c).strip()
-        if not c2:
-            continue
-
-        up = c2.upper()
-
-        # If a city/state/zip shows up at the end, strip it (e.g., "FORT WORTH TX 76131")
-        m = CITY_STATE_ZIP_RE.search(up)
-        if m:
-            # if it's in the latter half of the string, assume it's spillover and cut it off
-            if m.start() >= max(8, len(c2) // 2):
-                c2 = c2[:m.start()].strip()
-
-        # If a street address shows up at the end, strip it too (spillover)
-        m2 = STREET_RE.search(c2)
-        if m2 and m2.start() >= max(8, len(c2) // 2):
-            c2 = c2[:m2.start()].strip()
-
-        c2 = re.sub(r"\s+", " ", c2).strip()
-        if c2:
-            charges.append(c2)
-
     # Clean address lines
     addr_lines = []
-    for a in rec["addr_lines"]:
-        a2 = re.sub(r"\s+", " ", a).strip()
-        if a2:
+    for a in rec.get("addr_lines", []):
+        a2 = re.sub(r"\s+", " ", (a or "")).strip()
+        if a2 and not is_noise_line(a2):
             addr_lines.append(a2)
 
-    # ✅ CITY ONLY (instead of full street address)
-    city_only = extract_city(addr_lines)
+    # City only under name
+    city_only = extract_city_only(addr_lines)
+
+    # Clean charges
+    charges_clean = []
+    for c in rec.get("charges", []):
+        c2 = clean_charge_text(c)
+        if c2:
+            charges_clean.append(c2)
+
+    # If the PDF glued multiple charges together, keep them on new lines
+    description = "\n".join(charges_clean)
 
     return {
         "name": rec["name"],
         "book_in_date": rec["book_in_date"],
-        "address": city_only,              # <-- city only goes under the name
-        "description": "\n".join(charges), # <-- charge text only
+        "city": city_only,
+        "description": description,
     }
 
-def html_escape(s: str) -> str:
-    return (
-        (s or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+
+# -----------------------------
+# HTML rendering
+# -----------------------------
+
+def most_common_category(booked_records: list[dict]) -> str:
+    """
+    "Most common arrest category today:"
+    We'll define "category" as the first charge line (or first sentence chunk).
+    Keeps it simple, stable, and won’t break your layout.
+    """
+    cats = []
+    for r in booked_records:
+        desc = (r.get("description") or "").strip()
+        if not desc:
+            continue
+        first_line = desc.split("\n", 1)[0].strip()
+        if not first_line:
+            continue
+        # normalize spacing
+        first_line = re.sub(r"\s+", " ", first_line).strip()
+        cats.append(first_line)
+
+    if not cats:
+        return "N/A"
+
+    top, _ = Counter(cats).most_common(1)[0]
+    return top
+
+
 def render_html(header_date: datetime, booked_records: list[dict]) -> str:
-    # As requested: arrests date is 1 day behind header date
+    # arrests date is 1 day behind header date
     arrests_date = (header_date - timedelta(days=1)).strftime("%-m/%-d/%Y")
     header_date_str = header_date.strftime("%-m/%-d/%Y")
 
     total = len(booked_records)
     shown = min(total, ROW_LIMIT)
 
+    top_category = most_common_category(booked_records)
+
     rows_html = []
     for r in booked_records[:ROW_LIMIT]:
         name = html_escape(r["name"])
-        addr = html_escape(r["address"]).replace("\n", "<br>")
-        desc = html_escape(r["description"]).replace("\n", "<br>")
+        city = html_escape(r.get("city", ""))
+        desc = html_escape(r.get("description", "")).replace("\n", "<br>")
         date = html_escape(r["book_in_date"])
 
-        # Name in orange + bold; address normal (code-ish font)
+        # Name in orange + bold; city in normal monospace under it
+        city_block = ""
+        if city:
+            city_block = f"""
+              <div style="margin-top:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+                          color:{TEXT}; font-size:13px; line-height:1.35;">
+                {city}
+              </div>
+            """
+
         name_block = f"""
           <div style="font-weight:800; color:{ORANGE}; letter-spacing:0.2px;">{name}</div>
-          <div style="margin-top:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{TEXT}; font-size:13px; line-height:1.35;">
-            {addr}
-          </div>
+          {city_block}
         """
 
         rows_html.append(f"""
@@ -271,6 +366,12 @@ def render_html(header_date: datetime, booked_records: list[dict]) -> str:
         Total bookings in the last 24 hours:
         <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{ORANGE}; font-weight:800;">
           {total}
+        </span>
+      </div>
+      <div style="margin-top:8px; font-size:15px; color:{MUTED};">
+        Most common arrest category today:
+        <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{TEXT}; font-weight:700;">
+          {html_escape(top_category)}
         </span>
       </div>
     """
@@ -370,11 +471,9 @@ def send_email(subject: str, html_body: str) -> None:
 def main():
     booked_base = env("BOOKED_BASE_URL", DEFAULT_BOOKED_BASE_URL).rstrip("/")
     booked_day = env("BOOKED_DAY", "01").strip()  # keep simple: day 01
-    # If you later want rolling N days, we can do that — but you told me: keep it simple & don’t break shit.
-
     booked_url = f"{booked_base}/{booked_day}.PDF"
-    pdf_bytes = fetch_pdf(booked_url)
 
+    pdf_bytes = fetch_pdf(booked_url)
     report_dt, booked_records = parse_booked_in(pdf_bytes)
 
     subject = f"Tarrant County Jail Report — {report_dt.strftime('%-m/%-d/%Y')}"
