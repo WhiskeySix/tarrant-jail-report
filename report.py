@@ -228,7 +228,13 @@ def finalize_record(rec: dict) -> dict:
         "description": "\n".join(charges), # <-- charge text only
     }
 
-
+def html_escape(s: str) -> str:
+    return (
+        (s or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 def render_html(header_date: datetime, booked_records: list[dict]) -> str:
     # As requested: arrests date is 1 day behind header date
     arrests_date = (header_date - timedelta(days=1)).strftime("%-m/%-d/%Y")
