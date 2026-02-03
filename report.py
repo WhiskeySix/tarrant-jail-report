@@ -311,22 +311,67 @@ def parse_bonds(pdf_bytes: bytes):
 # ---------------------------
 
 def render_table(headers, rows):
-    th = "".join(f"<th>{safe(h)}</th>" for h in headers)
-    out = ["""
-    <table style="width:100%;border-collapse:collapse;margin:12px 0;font-family:Arial,sans-serif;">
-      <thead>
-        <tr style="background:#1f2937;color:#fff;">
-          %s
-        </tr>
-      </thead>
-      <tbody>
-    """ % th]
+    """
+    headers: list[str]
+    rows: list[list[str]] or list[tuple]
+    Returns: HTML string for a responsive table.
 
-    for r in rows:
-        tds = "".join(f"<td style='border:1px solid #374151;padding:10px;vertical-align:top;'>{safe(str(c))}</td>" for c in r)
-        out.append(f"<tr style='background:#0b1220;color:#e5e7eb;'>{tds}</tr>")
-    out.append("</tbody></table>")
-    return "".join(out)
+    IMPORTANT:
+    This version does NOT use old-style % formatting, so CSS like 100% will never crash.
+    """
+    import html
+
+    def esc(x):
+        if x is None:
+            return ""
+        return html.escape(str(x))
+
+    # Basic dark theme table styling
+    style = """
+    <style>
+      .jr-table-wrap { width: 100%; overflow-x: auto; margin: 12px 0 18px; }
+      table.jr-table { width: 100%; border-collapse: collapse; font-family: Arial, Helvetica, sans-serif; }
+      table.jr-table th, table.jr-table td {
+        border: 1px solid #444;
+        padding: 10px 12px;
+        vertical-align: top;
+      }
+      table.jr-table th {
+        background: #2b2b2b;
+        color: #fff;
+        text-align: left;
+        font-weight: 700;
+      }
+      table.jr-table td {
+        background: #111;
+        color: #eaeaea;
+      }
+      .jr-muted { color: #bdbdbd; }
+    </style>
+    """
+
+    # Build header row
+    thead = "<tr>" + "".join(f"<th>{esc(h)}</th>" for h in headers) + "</tr>"
+
+    # Build body rows
+    if not rows:
+        col_span = max(1, len(headers))
+        tbody = f'<tr><td colspan="{col_span}" class="jr-muted">No records found.</td></tr>'
+    else:
+        tbody_rows = []
+        for r in rows:
+            cells = "".join(f"<td>{esc(c)}</td>" for c in r)
+            tbody_rows.append(f"<tr>{cells}</tr>")
+        tbody = "".join(tbody_rows)
+
+    return (
+        style
+        + '<div class="jr-table-wrap">'
+        + '<table class="jr-table">'
+        + f"<thead>{thead}</thead>"
+        + f"<tbody>{tbody}</tbody>"
+        + "</table></div>"
+    )
 
 def build_html(title, report_date, booked_today, bonds_today, matches, booked_days):
     # Charges summary
