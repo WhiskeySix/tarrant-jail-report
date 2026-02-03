@@ -4,6 +4,7 @@ import ssl
 import smtplib
 import urllib.request
 from io import BytesIO
+from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -52,6 +53,13 @@ def download_pdf(url: str) -> bytes:
         return resp.read()
 
 
+def parse_mmddyyyy(s: str) -> datetime | None:
+    try:
+        return datetime.strptime(s, "%m/%d/%Y")
+    except Exception:
+        return None
+
+
 # ----------------------------
 # Parsing: Booked-In PDF
 # ----------------------------
@@ -81,14 +89,13 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[str, list[dict]]:
 
             # Pull report date (first one found wins)
             if not report_date:
-                for ln in lines[:10]:
+                for ln in lines[:15]:
                     m = RE_REPORT_DATE.search(ln)
                     if m:
                         report_date = m.group(1)
                         break
 
             # Skip header lines until we pass the column header
-            # Example header line: "Inmate Name Identifier CID Book In Date Booking No. Description"
             start_idx = 0
             for i, ln in enumerate(lines):
                 if "Inmate Name" in ln and "Book In Date" in ln and "Description" in ln:
@@ -130,8 +137,6 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[str, list[dict]]:
                     # Line that contains booking no is usually: "<street> <bookingNo> <desc...>"
                     b = RE_BOOKING_NO.search(cur)
                     if b:
-                        # Split around booking number
-                        booking_no = b.group(1)
                         left = cur[:b.start()].strip()
                         right = cur[b.end():].strip()
 
@@ -159,8 +164,7 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[str, list[dict]]:
                             j += 1
                         break
                     else:
-                        # Sometimes the street line may not include booking no (rare),
-                        # but in this report the street is usually right here.
+                        # Sometimes a street line may appear without booking no (rare)
                         if not addr_line and not RE_CITY_STATE_ZIP.match(cur):
                             addr_line = cur
                         j += 1
@@ -175,7 +179,6 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[str, list[dict]]:
                     full_address = city_line
 
                 description = " ".join(description_parts).strip()
-                # Clean up double spaces
                 description = re.sub(r"\s+", " ", description)
 
                 records.append({
@@ -188,7 +191,7 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[str, list[dict]]:
                 i = j
 
     if not report_date:
-        report_date = "Unknown Date"
+        report_date = datetime.now().strftime("%m/%d/%Y")
 
     return report_date, records
 
@@ -198,12 +201,18 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[str, list[dict]]:
 # ----------------------------
 
 def build_html(report_date: str, records: list[dict], max_rows: int) -> tuple[str, str]:
+    # Accent color: reuse your existing orange
+    ACCENT_ORANGE = "#f28c28"
+
     title = f"Tarrant County Jail Report — {report_date}"
-    subtitle = f"Summary of arrests in Tarrant County for {report_date}"
-    data_note = (
-        "This report is automated from Tarrant County data. "
-        "Some records may contain partial or wrapped fields due to source formatting."
-    )
+
+    # Arrest date is one day behind report date
+    rd = parse_mmddyyyy(report_date)
+    arrest_date = (rd - timedelta(days=1)).strftime("%m/%d/%Y") if rd else report_date
+    subtitle = f"Summary of arrests in Tarrant County for {arrest_date}"
+
+    # Simplified source note (no formatting disclaimer)
+    source_note = "Source: Tarrant County Criminal Justice data."
 
     total = len(records)
     shown = records[:max_rows]
@@ -211,12 +220,35 @@ def build_html(report_date: str, records: list[dict], max_rows: int) -> tuple[st
     def esc(s: str) -> str:
         return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
+    # Total bookings line (code-style) under Booked-In header
+    bookings_line = f"""
+      <div style="
+        margin: 10px 0 14px 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+        font-size: 16px;
+        line-height: 1.4;">
+        <span style="color: {ACCENT_ORANGE}; font-weight: 800;">{total}</span>
+        <span style="color: #666;"> new bookings in the last 24 hours</span>
+      </div>
+    """
+
+    showing_line = (
+        f"<div style='margin-top:6px; color:#777;'>Showing first {max_rows} of {total} records.</div>"
+        if total > max_rows
+        else ""
+    )
+
     rows_html = []
     for r in shown:
-        name_html = f"<div style='font-weight:700;'>{esc(r['name'])}</div>"
+        # Name now bold + orange (same as bookings number)
+        name_html = f"<div style='font-weight:900; color:{ACCENT_ORANGE};'>{esc(r['name'])}</div>"
+
+        # Address under name (monospace, normal weight)
         addr_html = (
-            f"<div style='margin-top:4px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "
-            f"\"Liberation Mono\", \"Courier New\", monospace; font-size: 12px; color: #444;'>"
+            "<div style='margin-top:4px; "
+            "font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "
+            "\"Liberation Mono\", \"Courier New\", monospace; "
+            "font-size: 12px; color: #555;'>"
             f"{esc(r['address'])}</div>"
         )
         name_cell = name_html + addr_html
@@ -224,16 +256,10 @@ def build_html(report_date: str, records: list[dict], max_rows: int) -> tuple[st
         rows_html.append(
             "<tr>"
             f"<td style='padding:10px; border-top:1px solid #e5e5e5; vertical-align:top;'>{name_cell}</td>"
-            f"<td style='padding:10px; border-top:1px solid #e5e5e5; white-space:nowrap; vertical-align:top;'>{esc(r['book_in_date'])}</td>"
-            f"<td style='padding:10px; border-top:1px solid #e5e5e5; vertical-align:top;'>{esc(r['description'])}</td>"
+            f"<td style='padding:10px; border-top:1px solid #e5e5e5; white-space:nowrap; vertical-align:top; color:#333;'>{esc(r['book_in_date'])}</td>"
+            f"<td style='padding:10px; border-top:1px solid #e5e5e5; vertical-align:top; color:#222;'>{esc(r['description'])}</td>"
             "</tr>"
         )
-
-    showing_line = (
-        f"<div style='margin-top:6px; color:#555;'>Showing first {max_rows} of {total} records.</div>"
-        if total > max_rows
-        else ""
-    )
 
     html = f"""
 <!doctype html>
@@ -246,15 +272,16 @@ def build_html(report_date: str, records: list[dict], max_rows: int) -> tuple[st
   <div style="max-width:900px; margin:0 auto; padding:20px;">
     <div style="background:#ffffff; border:1px solid #eaeaea; border-radius:12px; padding:22px;">
       <div style="font-size:32px; font-weight:800; letter-spacing:-0.5px; margin:0 0 6px 0;">{esc(title)}</div>
-      <div style="font-size:18px; color:#555; margin:0 0 14px 0;">{esc(subtitle)}</div>
-      <hr style="border:none; border-top:1px solid #ededed; margin:16px 0;"/>
-      <div style="color:#666; font-size:14px; line-height:1.4;">{esc(data_note)}</div>
+      <div style="font-size:18px; color:#555; margin:0 0 10px 0;">{esc(subtitle)}</div>
+      <div style="color:#777; font-size:13px; margin:0 0 14px 0;">{esc(source_note)}</div>
 
-      <div style="margin-top:18px; font-size:24px; font-weight:800;">Booked-In (Last 24 Hours)</div>
-      <div style="margin-top:6px; color:#555;">{total} records parsed from Booked-In PDF.</div>
+      <hr style="border:none; border-top:1px solid #ededed; margin:16px 0;"/>
+
+      <div style="margin-top:10px; font-size:24px; font-weight:800; color:#111;">Booked-In (Last 24 Hours)</div>
+      {bookings_line}
       {showing_line}
 
-      <div style="overflow-x:auto; margin-top:14px;">
+      <div style="overflow-x:auto; margin-top:10px;">
         <table style="width:100%; border-collapse:collapse; min-width:720px;">
           <thead>
             <tr style="background:#f1f1f1;">
@@ -289,7 +316,6 @@ def send_email(subject: str, html_body: str) -> None:
     smtp_user = env("SMTP_USER", required=True)
     smtp_pass = env("SMTP_PASS", required=True)
 
-    # Defaults that won't crash if blank
     smtp_port = to_int(env("SMTP_PORT", "465"), 465)
     smtp_mode = env("SMTP_MODE", "ssl").lower()  # "ssl" or "starttls"
     from_email = env("FROM_EMAIL", smtp_user)
