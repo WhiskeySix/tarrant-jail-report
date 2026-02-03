@@ -3,7 +3,7 @@ name: Daily Tarrant Jail Report
 on:
   workflow_dispatch:
   # schedule:
-  #   - cron: "15 13 * * *"   # 7:15am CST (adjust if you want)
+  #   - cron: "15 13 * * *"   # 7:15am CST
 
 jobs:
   run-report:
@@ -25,20 +25,16 @@ jobs:
 
       - name: Run report
         env:
-          # Email (Secrets)
           TO_EMAIL: ${{ secrets.TO_EMAIL }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
 
-          # SMTP host/port (optional; defaults work for Gmail)
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          # Safe defaults even if secrets are missing/blank
+          SMTP_HOST: ${{ secrets.SMTP_HOST || 'smtp.gmail.com' }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT || '465' }}
 
-          # Booked-In source (use either BOOKED_PDF_URL OR BOOKED_BASE_URL + BOOKED_DAY)
           BOOKED_BASE_URL: "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF"
           BOOKED_DAY: "01"
-
-          # Output controls
           TABLE_LIMIT: "150"
         run: |
           python report.py
