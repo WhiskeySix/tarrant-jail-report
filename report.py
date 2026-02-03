@@ -12,7 +12,7 @@ import pdfplumber
 
 
 # -----------------------------
-# Theme / constants
+# Config / helpers
 # -----------------------------
 
 ORANGE = "#f4a261"
@@ -25,9 +25,6 @@ BORDER = "#2a2f34"
 DEFAULT_BOOKED_BASE_URL = "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF"
 ROW_LIMIT = int(os.getenv("ROW_LIMIT", "250"))
 
-# -----------------------------
-# Env helpers
-# -----------------------------
 
 def env(name: str, default: str = "") -> str:
     v = os.getenv(name, default)
@@ -50,34 +47,53 @@ def fetch_pdf(url: str) -> bytes:
     return r.content
 
 
+def html_escape(s: str) -> str:
+    return (
+        (s or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
 # -----------------------------
 # PDF Parsing (Booked-In)
 # -----------------------------
 
-# Patterns coming out of the PDF text
 NAME_CID_DATE_RE = re.compile(
     r"^(?P<name>[A-Z][A-Z' \-]+,\s*[A-Z0-9][A-Z0-9' \-]+)\s+(?P<cid>\d{6,7})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})$"
 )
 CID_DATE_ONLY_RE = re.compile(r"^(?P<cid>\d{6,7})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})$")
 NAME_ONLY_RE = re.compile(r"^[A-Z][A-Z' \-]+,\s*[A-Z0-9][A-Z0-9' \-]+$")
 
-BOOKING_RE = re.compile(r"\b\d{2}-\d{7}\b")  # booking no like 26-0259xxx
+# Booking number (used when present)
+BOOKING_RE = re.compile(r"\b\d{2}-\d{7}\b")
 
-# City/state/zip patterns we can reliably detect
-CITY_STATE_ZIP_RE = re.compile(r"\b([A-Z][A-Z \-'.]+)\s+TX\s+(\d{5})\b", re.IGNORECASE)
-CITY_STATE_RE = re.compile(r"\b([A-Z][A-Z \-'.]+)\s+TX\b", re.IGNORECASE)
+# City detection and TX/ZIP
+TX_ZIP_RE = re.compile(r"\bTX\b\s+\d{5}\b", re.IGNORECASE)
 
-# PDF header garbage that leaks into description sometimes
-GARBAGE_HINTS = [
-    "INMATES BOOKED IN DURING THE PAST 24 HOURS",
-    "REPORT DATE:",
-    "PAGE:",
-    "INMATE NAME IDENTIFIER",
-    "BOOK IN DATE",
-    "BOOKING NO",
-    "DESCRIPTION",
+# Street suffixes (address signal)
+STREET_SUFFIX_RE = re.compile(
+    r"\b(ST|STREET|AVE|AVENUE|RD|ROAD|DR|DRIVE|LN|LANE|BLVD|CT|CIR|PL|PKWY|HWY|WAY|TRL|TER|PKY|PKWY)\b",
+    re.IGNORECASE
+)
+
+# Common header/footer junk that leaks into rows
+JUNK_MARKERS = (
+    "Inmates Booked In During the Past 24 Hours",
+    "Report Date:",
+    "Page:",
+    "Inmate Name Identifier",
+    "Inmate Name",
+    "Identifier",
     "CID",
-]
+    "Book In Date",
+    "Booking No.",
+    "Description",
+)
+
+# Some PDFs stick "FORT WORTH TX 76155" directly onto the end of a charge line
+TRAILING_CITY_TX_ZIP_RE = re.compile(r"\b([A-Z][A-Z \-']+)\s+TX\s+\d{5}\b")
 
 
 def extract_report_date_from_text(text: str) -> datetime | None:
@@ -90,9 +106,111 @@ def extract_report_date_from_text(text: str) -> datetime | None:
         return None
 
 
+def looks_like_address(s: str) -> bool:
+    su = (s or "").upper()
+
+    # obvious header/footer junk is NOT an address
+    if any(j.upper() in su for j in JUNK_MARKERS):
+        return False
+
+    # typical street number + suffix
+    if re.search(r"\b\d{1,6}\b", su) and STREET_SUFFIX_RE.search(su):
+        return True
+
+    # TX + ZIP line
+    if TX_ZIP_RE.search(su):
+        return True
+
+    # apt/unit markers
+    if re.search(r"\b(APT|UNIT|#)\b", su):
+        return True
+
+    return False
+
+
+def extract_city_from_address_lines(addr_lines: list[str]) -> str:
+    """
+    Try to pull city from address lines.
+    Prefers lines that look like 'FORT WORTH TX 76102' or 'FORT WORTH TX'
+    If not found, returns empty string.
+    """
+    # Search from bottom up (city usually later)
+    for line in reversed(addr_lines or []):
+        su = line.upper().strip()
+
+        # If line has TX + ZIP, city is what comes before TX
+        if TX_ZIP_RE.search(su):
+            parts = su.split(" TX", 1)
+            city_part = parts[0].strip()
+            # If it also includes street number, strip that off
+            # e.g. "1234 SOME ST FORT WORTH"
+            tokens = city_part.split()
+            # Heuristic: city is last 1-4 tokens, so keep last chunk after street-like stuff
+            # We'll take everything after the last street suffix, if present
+            # Otherwise take last 2 tokens minimum
+            m = STREET_SUFFIX_RE.search(city_part)
+            if m:
+                # if there is a suffix, likely street line, so city is after it (rare)
+                pass
+            # best guess: take last up to 4 tokens
+            city_tokens = tokens[-4:] if len(tokens) >= 2 else tokens
+            city = " ".join(city_tokens).title()
+            return city
+
+        # If line is just a city (like "FORT WORTH")
+        # It shouldn't have digits
+        if su and not re.search(r"\d", su) and len(su) <= 30:
+            # avoid picking up charge fragments like "DRIVING WHILE"
+            if not STREET_SUFFIX_RE.search(su) and su not in ("TX",):
+                return su.title()
+
+    return ""
+
+
+def clean_charge_text(text: str, person_name: str) -> str:
+    """
+    Force description to contain ONLY charge text:
+    - Remove PDF headers/footers
+    - Remove embedded inmate name repeats
+    - Remove address fragments (street / city TX zip)
+    - Collapse whitespace
+    """
+    t = (text or "").strip()
+    if not t:
+        return ""
+
+    # Drop known junk blocks
+    for j in JUNK_MARKERS:
+        t = t.replace(j, " ")
+
+    # Remove repeated inmate name + variants
+    if person_name:
+        pn = person_name.upper().strip()
+        t = re.sub(re.escape(pn), " ", t.upper()).strip()
+        t = t.replace("  ", " ")
+
+    # Remove booking numbers if they leaked into charge strings
+    t = BOOKING_RE.sub(" ", t)
+
+    # Remove street address fragments e.g. "2305 LENA ST" or "1517 CONNALLY TER"
+    t = re.sub(r"\b\d{1,6}\s+[A-Z0-9'\- ]{2,35}\b(" + STREET_SUFFIX_RE.pattern + r")\b", " ", t, flags=re.IGNORECASE)
+
+    # Remove "CITY TX 76123" tails
+    t = re.sub(r"\b[A-Z][A-Z \-']+\s+TX\s+\d{5}\b", " ", t, flags=re.IGNORECASE)
+
+    # Remove standalone TX + ZIP that might remain
+    t = re.sub(r"\bTX\s+\d{5}\b", " ", t, flags=re.IGNORECASE)
+
+    # Collapse whitespace
+    t = re.sub(r"\s+", " ", t).strip()
+
+    # Keep uppercase look like your PDF
+    return t.upper()
+
+
 def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     records: list[dict] = []
-    pending = None  # (cid, date) when CID DATE line appears before NAME
+    pending = None  # holds (cid, date)
     current = None
 
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
@@ -104,6 +222,10 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
             for ln in lines:
+                # ignore obvious junk lines early
+                if any(j in ln for j in JUNK_MARKERS):
+                    continue
+
                 # Pattern A: NAME CID DATE
                 mA = NAME_CID_DATE_RE.match(ln)
                 if mA:
@@ -114,12 +236,12 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
                         "cid": mA.group("cid").strip(),
                         "book_in_date": mA.group("date").strip(),
                         "addr_lines": [],
-                        "charge_lines": [],
+                        "charges": [],
                     }
                     pending = None
                     continue
 
-                # Pattern B: CID DATE then next line NAME
+                # Pattern B: CID DATE then NAME
                 mB = CID_DATE_ONLY_RE.match(ln)
                 if mB:
                     if current:
@@ -134,14 +256,13 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
                         "cid": pending[0],
                         "book_in_date": pending[1],
                         "addr_lines": [],
-                        "charge_lines": [],
+                        "charges": [],
                     }
                     pending = None
                     continue
 
-                # If we were pending and we didn't get a name next, drop pending (prevents gluing junk)
+                # if pending doesn't resolve cleanly, drop it
                 if pending and not current:
-                    # once any other line appears, pending is unreliable
                     pending = None
 
                 if not current:
@@ -157,58 +278,28 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
 
 def apply_content_line(rec: dict, ln: str) -> None:
     """
-    Splits lines into address fragments and charges.
-    Booking numbers (e.g., 26-0259229) are used as charge anchors when present.
-    If booking numbers are NOT present, we use heuristics:
-      - address-ish lines go to addr
-      - otherwise (especially before any charges exist) treat as first charge
+    Robust: will never crash and will separate address-ish vs charge-ish lines.
+    Booking numbers (when present) anchor charge chunks.
     """
 
-    # --- SAFETY: ensure keys exist (prevents KeyError: 'charges') ---
+    # hard safety
     if "addr_lines" not in rec or rec["addr_lines"] is None:
         rec["addr_lines"] = []
     if "charges" not in rec or rec["charges"] is None:
         rec["charges"] = []
 
-    # ---- ignore common PDF header/footer junk that leaks into rows ----
-    junk_markers = (
-        "Inmates Booked In During the Past 24 Hours",
-        "Report Date:",
-        "Page:",
-        "Inmate Name Identifier",
-        "CID",
-        "Book In Date",
-        "Booking No.",
-        "Description",
-    )
-    if any(j in ln for j in junk_markers):
+    # junk filter
+    if any(j in ln for j in JUNK_MARKERS):
         return
-
-    def looks_like_address(s: str) -> bool:
-        s_up = s.upper()
-
-        # street number / unit patterns
-        if re.search(r"\b\d{1,6}\b", s_up):
-            if re.search(r"\b(ST|STREET|AVE|AVENUE|RD|ROAD|DR|DRIVE|LN|LANE|BLVD|CT|CIR|PL|PKWY|HWY|WAY)\b", s_up):
-                return True
-
-        # city/state/zip style tails
-        if re.search(r"\bTX\b", s_up) and re.search(r"\b\d{5}\b", s_up):
-            return True
-
-        if re.search(r"\b(APT|UNIT|#)\b", s_up):
-            return True
-
-        return False
 
     bookings = list(BOOKING_RE.finditer(ln))
     if bookings:
-        # Anything before the first booking looks like address (street or city line)
+        # before first booking is likely address fragment
         pre = ln[: bookings[0].start()].strip()
-        if pre:
+        if pre and looks_like_address(pre):
             rec["addr_lines"].append(pre)
 
-        # Parse each booking chunk as a charge
+        # booking chunks become charges
         for i, b in enumerate(bookings):
             start = b.end()
             end = bookings[i + 1].start() if i + 1 < len(bookings) else len(ln)
@@ -217,168 +308,61 @@ def apply_content_line(rec: dict, ln: str) -> None:
                 rec["charges"].append(chunk)
         return
 
-    # No booking number found:
-    if not rec["charges"]:
-        # If it looks like an address line, store as address. Otherwise it's the FIRST charge.
-        if looks_like_address(ln):
-            rec["addr_lines"].append(ln)
-        else:
-            rec["charges"].append(ln)
-        return
-
-    # If we already have charges, decide if this is address leakage or charge continuation
+    # No booking numbers:
+    # Decide if address line or charge line
     if looks_like_address(ln):
         rec["addr_lines"].append(ln)
         return
 
-    # Otherwise, treat as continuation of the last charge (wrap lines)
+    # If we have no charges yet, this is our first charge line
+    if not rec["charges"]:
+        rec["charges"].append(ln)
+        return
+
+    # Otherwise continuation of the last charge (wrapped line)
     rec["charges"][-1] = (rec["charges"][-1] + " " + ln).strip()
 
 
-def extract_city_from_lines(lines: list[str]) -> str:
-    """
-    Find the best city candidate from any collected lines.
-    Prefer a clear 'CITY TX 76123' style line.
-    """
-    text = " \n ".join([ln.strip() for ln in lines if ln and ln.strip()])
-    if not text:
-        return ""
-
-    m = CITY_STATE_ZIP_RE.search(text)
-    if m:
-        city = m.group(1).strip()
-        return title_city(city)
-
-    m2 = CITY_STATE_RE.search(text)
-    if m2:
-        city = m2.group(1).strip()
-        return title_city(city)
-
-    return ""
-
-
-def title_city(city: str) -> str:
-    """
-    The PDF gives ALL CAPS often. Make it look normal-ish.
-    """
-    city = re.sub(r"\s+", " ", city).strip()
-    if not city:
-        return ""
-    # Title-case but keep internal punctuation
-    return " ".join([w.capitalize() if w.isalpha() else w[:1].capitalize() + w[1:].lower() for w in city.split(" ")])
-
-
-def looks_like_street_address(ln: str) -> bool:
-    """
-    Street addresses almost always start with digits in this dataset.
-    """
-    return bool(re.match(r"^\d{1,6}\s+", ln.strip()))
-
-
-def remove_city_zip_from_charge(text: str) -> str:
-    """
-    Remove trailing 'FORT WORTH TX 76102' style fragments from charges.
-    Also remove ' TX 76102' if present.
-    """
-    t = text
-    # remove full CITY TX ZIP
-    t = re.sub(r"\b[A-Z][A-Z \-'.]+\s+TX\s+\d{5}\b", "", t, flags=re.IGNORECASE).strip()
-    # remove trailing TX ZIP even if city already stripped
-    t = re.sub(r"\bTX\s+\d{5}\b", "", t, flags=re.IGNORECASE).strip()
-    # collapse whitespace
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
-
-
-def strip_pdf_garbage_lines(lines: list[str]) -> list[str]:
-    """
-    Remove header/footer junk lines that leak into extracted text.
-    """
-    cleaned = []
-    for ln in lines:
-        u = ln.upper().strip()
-        if not u:
-            continue
-
-        # remove obvious PDF headers
-        if any(h in u for h in GARBAGE_HINTS):
-            continue
-
-        # remove "Inmate Name" blocks that get repeated inside description
-        if NAME_ONLY_RE.match(u):
-            continue
-
-        # remove "Date: 2/2/2026" etc that comes from header blobs
-        if re.search(r"\bDATE:\s*\d{1,2}/\d{1,2}/\d{4}\b", u):
-            continue
-
-        # remove "PAGE: 3 OF 12"
-        if re.search(r"\bPAGE:\s*\d+\s+OF\s+\d+\b", u):
-            continue
-
-        cleaned.append(ln.strip())
-    return cleaned
-
-
-def extract_clean_charges(addr_lines: list[str], charge_lines: list[str]) -> str:
-    """
-    Produce "Description" = charges only.
-    Strategy:
-      - split charge_lines into sublines
-      - remove header junk
-      - remove street-address-like lines
-      - remove NAME lines
-      - remove city/zip fragments
-      - keep remaining as charge lines
-    """
-    raw = []
-    for ln in charge_lines:
-        if not ln:
-            continue
-        # explode to catch "wrapped" pieces
-        parts = [p.strip() for p in re.split(r"\n| {2,}", ln) if p.strip()]
-        raw.extend(parts)
-
-    raw = strip_pdf_garbage_lines(raw)
-
-    # If a line is actually an address, drop it from charges
-    filtered = []
-    for ln in raw:
-        if looks_like_street_address(ln):
-            continue
-        if NAME_ONLY_RE.match(ln.strip().upper()):
-            continue
-        filtered.append(ln)
-
-    # Join then scrub city/zip patterns
-    joined = " ".join(filtered)
-    joined = re.sub(r"\s+", " ", joined).strip()
-
-    # Remove any city/zip fragments (FORT WORTH TX 761xx) that still leak
-    joined = remove_city_zip_from_charge(joined)
-
-    # Sometimes the charge string still contains a trailing address fragment without TX/ZIP,
-    # but at least this will stop the big offenders. Keep it conservative (don’t over-strip).
-    return joined.strip()
-
-
 def finalize_record(rec: dict) -> dict:
-    # Normalize collected lines
-    addr_lines = [re.sub(r"\s+", " ", a).strip() for a in rec.get("addr_lines", []) if a and a.strip()]
-    charge_lines = [a.strip() for a in rec.get("charge_lines", []) if a and a.strip()]
+    # Clean addr lines
+    addr_lines = []
+    for a in rec.get("addr_lines", []) or []:
+        a2 = re.sub(r"\s+", " ", a).strip()
+        if a2 and not any(j in a2 for j in JUNK_MARKERS):
+            addr_lines.append(a2)
 
-    # City extraction: look in address lines first, but fall back to charge lines too (PDF sometimes leaks)
-    city = extract_city_from_lines(addr_lines)
+    # Build city: prefer extracted from addr lines; if still empty, try from charge lines (some PDFs embed city)
+    city = extract_city_from_address_lines(addr_lines)
+
+    # Clean charges and FORCE charge-only
+    raw_charge = " ".join((rec.get("charges", []) or [])).strip()
+    cleaned_charge = clean_charge_text(raw_charge, rec.get("name", ""))
+
+    # If still empty (rare), salvage from any addr line that doesn't look like address
+    if not cleaned_charge:
+        # Sometimes the PDF gives charges as non-address lines but got misrouted — salvage them.
+        salvage = []
+        for a in addr_lines:
+            if not looks_like_address(a):
+                salvage.append(a)
+        if salvage:
+            cleaned_charge = clean_charge_text(" ".join(salvage), rec.get("name", ""))
+
+    # If city is still empty, try to pull from the cleaned charge tail (CITY TX ZIP) before we stripped it (rare)
     if not city:
-        city = extract_city_from_lines(charge_lines)
+        m = TRAILING_CITY_TX_ZIP_RE.search(raw_charge.upper())
+        if m:
+            city = (m.group(1) or "").title().strip()
 
-    description = extract_clean_charges(addr_lines, charge_lines)
+    # Final fallback
+    if not city:
+        city = "Unknown"
 
     return {
-        "name": rec["name"],
-        "book_in_date": rec["book_in_date"],
-        "city": city,
-        "description": description,
+        "name": rec.get("name", "").strip(),
+        "book_in_date": rec.get("book_in_date", "").strip(),
+        "city": city.strip(),
+        "description": cleaned_charge.strip(),
     }
 
 
@@ -386,17 +370,7 @@ def finalize_record(rec: dict) -> dict:
 # HTML rendering
 # -----------------------------
 
-def html_escape(s: str) -> str:
-    return (
-        (s or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
-
-
 def render_html(header_date: datetime, booked_records: list[dict]) -> str:
-    # arrests date is 1 day behind header date
     arrests_date = (header_date - timedelta(days=1)).strftime("%-m/%-d/%Y")
     header_date_str = header_date.strftime("%-m/%-d/%Y")
 
@@ -407,20 +381,14 @@ def render_html(header_date: datetime, booked_records: list[dict]) -> str:
     for r in booked_records[:ROW_LIMIT]:
         name = html_escape(r.get("name", ""))
         city = html_escape(r.get("city", "")).strip()
-        desc = html_escape(r.get("description", "")).strip()
+        desc = html_escape(r.get("description", "")).replace("\n", "<br>")
         date = html_escape(r.get("book_in_date", ""))
-
-        city_block = ""
-        if city:
-            city_block = f"""
-              <div style="margin-top:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{TEXT}; font-size:13px; line-height:1.35;">
-                {city}
-              </div>
-            """
 
         name_block = f"""
           <div style="font-weight:800; color:{ORANGE}; letter-spacing:0.2px;">{name}</div>
-          {city_block}
+          <div style="margin-top:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{TEXT}; font-size:13px; line-height:1.35;">
+            {city}
+          </div>
         """
 
         rows_html.append(f"""
@@ -509,7 +477,6 @@ def send_email(subject: str, html_body: str) -> None:
     smtp_user = env("SMTP_USER", "").strip()
     smtp_pass = env("SMTP_PASS", "").strip()
 
-    # safe defaults
     smtp_host = env("SMTP_HOST", "smtp.gmail.com").strip()
     smtp_port = safe_int(env("SMTP_PORT", "465"), 465)
 
@@ -534,7 +501,7 @@ def send_email(subject: str, html_body: str) -> None:
 
 def main():
     booked_base = env("BOOKED_BASE_URL", DEFAULT_BOOKED_BASE_URL).rstrip("/")
-    booked_day = env("BOOKED_DAY", "01").strip()  # simple & stable
+    booked_day = env("BOOKED_DAY", "01").strip()  # keep simple
 
     booked_url = f"{booked_base}/{booked_day}.PDF"
     pdf_bytes = fetch_pdf(booked_url)
