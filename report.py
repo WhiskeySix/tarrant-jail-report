@@ -15,18 +15,18 @@ import pdfplumber
 # Config / helpers
 # -----------------------------
 
-# CLI purple vibe (Monokai-ish / VS Code-ish)
-PURPLE = "#c792ea"
+# Intel / CLI accent
+PURPLE = "#7c3aed"  # CLI purple accent
+INK = "#111827"     # near-black ink
+MUTED_INK = "#4b5563"
+PAPER = "#f5f3ee"   # dossier paper
+PAPER_2 = "#fbfaf7"
+LINE = "#d1d5db"
+CHIP_BG = "#111827"
+CHIP_TXT = "#f9fafb"
 
-# Keep your existing palette structure
-BG = "#111315"
-CARD = "#1b1f23"
-TEXT = "#d7d7d7"
-MUTED = "#a8b0b7"
-BORDER = "#2a2f34"
-
-# Code font stack
 CODE_FONT = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"
+SANS_FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
 
 DEFAULT_BOOKED_BASE_URL = "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF"
 DEFAULT_BOOKED_DAYS = 1
@@ -67,7 +67,6 @@ BOOKING_RE = re.compile(r"\b\d{2}-\d{7}\b")
 
 
 def extract_report_date_from_text(text: str) -> datetime | None:
-    # Finds first date like 2/2/2026 on the first page header if present
     m = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", text)
     if not m:
         return None
@@ -79,11 +78,10 @@ def extract_report_date_from_text(text: str) -> datetime | None:
 
 def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     records: list[dict] = []
-    pending = None  # holds (cid, date) when we see CID DATE line before NAME
-    current = None  # current record dict
+    pending = None
+    current = None
 
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-        # report date from first page text if possible
         first_text = pdf.pages[0].extract_text() or ""
         report_dt = extract_report_date_from_text(first_text) or datetime.now()
 
@@ -92,7 +90,6 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
             for ln in lines:
-                # Pattern A: NAME CID DATE
                 mA = NAME_CID_DATE_RE.match(ln)
                 if mA:
                     if current:
@@ -107,7 +104,6 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
                     pending = None
                     continue
 
-                # Pattern B: CID DATE (line 1) + NAME (line 2)
                 mB = CID_DATE_ONLY_RE.match(ln)
                 if mB:
                     if current:
@@ -127,12 +123,9 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
                     pending = None
                     continue
 
-                # If we hit a new NAME line unexpectedly while pending exists, treat pending as junk
                 if pending and not current and ln:
-                    # don’t glue pending into someone else's description
                     pending = None
 
-                # Content lines (address/charges) for the current record
                 if not current:
                     continue
 
@@ -145,18 +138,12 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
 
 
 def apply_content_line(rec: dict, ln: str) -> None:
-    """
-    Splits lines into address fragments and charges.
-    Booking numbers (e.g., 26-0259229) are used as charge anchors.
-    """
     bookings = list(BOOKING_RE.finditer(ln))
     if bookings:
-        # Anything before the first booking looks like address (street or city line)
         pre = ln[: bookings[0].start()].strip()
         if pre:
             rec["addr_lines"].append(pre)
 
-        # Parse each booking chunk as a charge
         for i, b in enumerate(bookings):
             start = b.end()
             end = bookings[i + 1].start() if i + 1 < len(bookings) else len(ln)
@@ -165,18 +152,14 @@ def apply_content_line(rec: dict, ln: str) -> None:
                 rec["charges"].append(chunk)
         return
 
-    # No booking number found; decide whether it's address or continuation
-    # Heuristic: if we haven't collected any charges yet, lines are usually address.
     if not rec["charges"]:
         rec["addr_lines"].append(ln)
         return
 
-    # Otherwise, treat as continuation of the last charge (wrap lines)
     rec["charges"][-1] = (rec["charges"][-1] + " " + ln).strip()
 
 
 def finalize_record(rec: dict) -> dict:
-    # Clean up charges: collapse excessive whitespace
     charges = []
     for c in rec["charges"]:
         c2 = re.sub(r"\s+", " ", c).strip()
@@ -192,9 +175,7 @@ def finalize_record(rec: dict) -> dict:
     return {
         "name": rec["name"],
         "book_in_date": rec["book_in_date"],
-        # Your current behavior (address content is whatever parsing produced)
         "address": "\n".join(addr_lines),
-        # Charges are charge-only lines (your working behavior)
         "description": "\n".join(charges),
     }
 
@@ -213,24 +194,21 @@ def html_escape(s: str) -> str:
 
 
 def render_html(header_date: datetime, booked_records: list[dict]) -> str:
-    # As requested: arrests date is 1 day behind header date
     arrests_date = (header_date - timedelta(days=1)).strftime("%-m/%-d/%Y")
     header_date_str = header_date.strftime("%-m/%-d/%Y")
 
     total = len(booked_records)
     shown = min(total, ROW_LIMIT)
 
-    # ---- display-only stat: most common FULL charge (specific, not "DRIVING WHILE") ----
+    # Most common FULL charge (first line of description)
     charge_counts = {}
 
     def first_charge_line(desc: str) -> str | None:
         if not desc:
             return None
-        # take the first line shown in the Description column (already charge text)
         line = desc.strip().splitlines()[0].strip()
         if not line:
             return None
-        # normalize whitespace only (no meaning changes)
         return re.sub(r"\s+", " ", line).upper()
 
     for r in booked_records:
@@ -250,45 +228,62 @@ def render_html(header_date: datetime, booked_records: list[dict]) -> str:
         desc = html_escape(r["description"]).replace("\n", "<br>")
         date = html_escape(r["book_in_date"])
 
-        # Name now: PURPLE + BOLD + CODE FONT
         name_block = f"""
-          <div style="font-weight:900; color:{PURPLE}; letter-spacing:0.2px; font-family:{CODE_FONT};">
+          <div style="font-weight:900; color:{INK}; letter-spacing:0.2px; font-family:{CODE_FONT}; font-size:15px;">
             {name}
           </div>
-          <div style="margin-top:6px; font-family:{CODE_FONT}; color:{TEXT}; font-size:13px; line-height:1.35;">
+          <div style="margin-top:6px; font-family:{CODE_FONT}; color:{MUTED_INK}; font-size:12.5px; line-height:1.35;">
             {addr}
           </div>
         """
 
         rows_html.append(f"""
           <tr>
-            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top;">{name_block}</td>
-            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top; color:{TEXT}; white-space:nowrap; font-family:{CODE_FONT};">{date}</td>
-            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top; color:{TEXT}; font-family:{CODE_FONT};">{desc}</td>
+            <td style="padding:14px 12px; border-top:1px solid {LINE}; vertical-align:top;">{name_block}</td>
+            <td style="padding:14px 12px; border-top:1px solid {LINE}; vertical-align:top; color:{INK}; white-space:nowrap; font-family:{CODE_FONT}; font-size:13px;">{date}</td>
+            <td style="padding:14px 12px; border-top:1px solid {LINE}; vertical-align:top; color:{INK}; font-family:{CODE_FONT}; font-size:13px; line-height:1.35;">{desc}</td>
           </tr>
         """)
 
-    # Total bookings + Most common charge (both in CODE font, purple value)
-    bookings_line = f"""
-      <div style="margin-top:10px; font-size:15px; color:{MUTED}; font-family:{CODE_FONT};">
-        Total bookings in the last 24 hours:
-        <span style="font-family:{CODE_FONT}; color:{PURPLE}; font-weight:900;">
-          {total}
-        </span>
-      </div>
-
-      <div style="margin-top:6px; font-size:15px; color:{MUTED}; font-family:{CODE_FONT};">
-        Most common charge:
-        <span style="font-family:{CODE_FONT}; color:{PURPLE}; font-weight:900;">
-          {html_escape(most_common_charge)}
-        </span>
+    # Intel-style chips + briefing stats
+    chips = f"""
+      <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
+        <div style="background:{CHIP_BG}; color:{CHIP_TXT}; font-family:{CODE_FONT}; font-weight:900; font-size:12px; padding:7px 10px; border-radius:999px;">
+          UNCLASSIFIED // FOR INFORMATIONAL USE ONLY
+        </div>
+        <div style="background:{PAPER_2}; color:{INK}; border:1px solid {LINE}; font-family:{CODE_FONT}; font-weight:800; font-size:12px; padding:7px 10px; border-radius:999px;">
+          SOURCE: TARRANT COUNTY (CJ REPORTS)
+        </div>
       </div>
     """
 
-    # Keep it clean—no disclaimer
-    source_line = f"""
-      <div style="margin-top:18px; color:{MUTED}; font-size:14px; line-height:1.5; font-family:{CODE_FONT};">
-        This report is automated from Tarrant County data.
+    brief_meta = f"""
+      <div style="margin-top:14px; display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px;">
+        <div style="background:{PAPER_2}; border:1px solid {LINE}; border-radius:12px; padding:10px 12px;">
+          <div style="font-family:{CODE_FONT}; font-size:11px; color:{MUTED_INK};">REPORT DATE</div>
+          <div style="font-family:{CODE_FONT}; font-weight:900; color:{INK};">{header_date_str}</div>
+        </div>
+        <div style="background:{PAPER_2}; border:1px solid {LINE}; border-radius:12px; padding:10px 12px;">
+          <div style="font-family:{CODE_FONT}; font-size:11px; color:{MUTED_INK};">ARRESTS DATE</div>
+          <div style="font-family:{CODE_FONT}; font-weight:900; color:{INK};">{arrests_date}</div>
+        </div>
+        <div style="background:{PAPER_2}; border:1px solid {LINE}; border-radius:12px; padding:10px 12px;">
+          <div style="font-family:{CODE_FONT}; font-size:11px; color:{MUTED_INK};">RECORDS</div>
+          <div style="font-family:{CODE_FONT}; font-weight:900; color:{INK};">{total}</div>
+        </div>
+      </div>
+    """
+
+    bookings_line = f"""
+      <div style="margin-top:18px; padding:12px 14px; border:1px solid {LINE}; border-radius:12px; background:{PAPER_2};">
+        <div style="font-family:{CODE_FONT}; font-size:14px; color:{MUTED_INK};">
+          Total bookings in the last 24 hours:
+          <span style="color:{PURPLE}; font-weight:900;">{total}</span>
+        </div>
+        <div style="margin-top:6px; font-family:{CODE_FONT}; font-size:14px; color:{MUTED_INK};">
+          Most common charge:
+          <span style="color:{PURPLE}; font-weight:900;">{html_escape(most_common_charge)}</span>
+        </div>
       </div>
     """
 
@@ -300,38 +295,39 @@ def render_html(header_date: datetime, booked_records: list[dict]) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Tarrant County Jail Report — {header_date_str}</title>
 </head>
-<body style="margin:0; padding:0; background:{BG}; color:{TEXT}; font-family:{CODE_FONT};">
+<body style="margin:0; padding:0; background:{PAPER}; color:{INK}; font-family:{SANS_FONT};">
   <div style="max-width:900px; margin:0 auto; padding:26px 18px 40px;">
-    <div style="background:{CARD}; border:1px solid {BORDER}; border-radius:14px; padding:22px 22px 18px;">
-      <div style="font-size:44px; font-weight:900; letter-spacing:-0.6px; line-height:1.05; font-family:{CODE_FONT};">
+    <div style="background:{PAPER_2}; border:1px solid {LINE}; border-radius:14px; padding:22px 22px 18px; box-shadow: 0 1px 0 rgba(0,0,0,0.04);">
+      <div style="font-size:36px; font-weight:900; letter-spacing:-0.6px; line-height:1.1; font-family:{CODE_FONT}; color:{INK};">
         Tarrant County Jail Report — {header_date_str}
       </div>
 
-      <div style="margin-top:10px; font-size:20px; color:{MUTED}; line-height:1.35; font-family:{CODE_FONT};">
-        Summary of arrests in Tarrant County for {arrests_date}
+      {chips}
+      {brief_meta}
+
+      <div style="margin-top:18px; height:1px; background:{LINE};"></div>
+
+      <div style="margin-top:14px; color:{MUTED_INK}; font-size:13px; line-height:1.5; font-family:{CODE_FONT};">
+        This report is automated from Tarrant County data.
       </div>
 
-      <div style="margin-top:18px; height:1px; background:{BORDER};"></div>
-
-      {source_line}
-
-      <div style="margin-top:26px; font-size:34px; font-weight:900; letter-spacing:-0.3px; font-family:{CODE_FONT};">
+      <div style="margin-top:22px; font-size:28px; font-weight:900; letter-spacing:-0.3px; font-family:{CODE_FONT}; color:{INK};">
         Booked-In (Last 24 Hours)
       </div>
 
       {bookings_line}
 
-      <div style="margin-top:18px; color:{MUTED}; font-size:14px; font-family:{CODE_FONT};">
+      <div style="margin-top:12px; color:{MUTED_INK}; font-size:13px; font-family:{CODE_FONT};">
         Showing first {shown} of {total} records.
       </div>
 
-      <div style="margin-top:16px; overflow:hidden; border-radius:12px; border:1px solid {BORDER};">
-        <table style="width:100%; border-collapse:collapse; background:#14181b; font-family:{CODE_FONT};">
+      <div style="margin-top:16px; overflow:hidden; border-radius:12px; border:1px solid {LINE}; background:{PAPER_2};">
+        <table style="width:100%; border-collapse:collapse; font-family:{CODE_FONT};">
           <thead>
-            <tr style="background:#1a1f23;">
-              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER}; font-family:{CODE_FONT};">Name</th>
-              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER}; width:120px; font-family:{CODE_FONT};">Book In Date</th>
-              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER}; font-family:{CODE_FONT};">Description</th>
+            <tr style="background:#f1efe9;">
+              <th style="text-align:left; padding:12px; color:{MUTED_INK}; font-weight:900; border-bottom:1px solid {LINE};">Name</th>
+              <th style="text-align:left; padding:12px; color:{MUTED_INK}; font-weight:900; border-bottom:1px solid {LINE}; width:120px;">Book In Date</th>
+              <th style="text-align:left; padding:12px; color:{MUTED_INK}; font-weight:900; border-bottom:1px solid {LINE};">Description</th>
             </tr>
           </thead>
           <tbody>
@@ -355,7 +351,6 @@ def send_email(subject: str, html_body: str) -> None:
     smtp_user = env("SMTP_USER", "").strip()
     smtp_pass = env("SMTP_PASS", "").strip()
 
-    # Safe defaults so we don't break when you didn't define these
     smtp_host = env("SMTP_HOST", "smtp.gmail.com").strip()
     smtp_port = safe_int(env("SMTP_PORT", "465"), 465)
 
@@ -380,7 +375,7 @@ def send_email(subject: str, html_body: str) -> None:
 
 def main():
     booked_base = env("BOOKED_BASE_URL", DEFAULT_BOOKED_BASE_URL).rstrip("/")
-    booked_day = env("BOOKED_DAY", "01").strip()  # keep simple: day 01
+    booked_day = env("BOOKED_DAY", "01").strip()
 
     booked_url = f"{booked_base}/{booked_day}.PDF"
     pdf_bytes = fetch_pdf(booked_url)
