@@ -2,7 +2,7 @@ import os
 import re
 import ssl
 import smtplib
-import urllib.request
+import requests
 from io import BytesIO
 from datetime import datetime, timedelta
 from email.mime.multipart import MIMEMultipart
@@ -11,287 +11,290 @@ from email.mime.text import MIMEText
 import pdfplumber
 
 
-# ----------------------------
-# Helpers
-# ----------------------------
+# -----------------------------
+# Config / helpers
+# -----------------------------
 
-def env(name: str, default: str | None = None, required: bool = False) -> str:
-    """
-    Reads environment variable.
-    Treats empty-string as missing.
-    """
-    val = os.getenv(name)
-    if val is not None:
-        val = val.strip()
-        if val == "":
-            val = None
-    if val is None:
-        if required:
-            raise RuntimeError(f"Missing required environment variable: {name}")
-        return "" if default is None else default
-    return val
+ORANGE = "#f4a261"  # use your orange vibe (matches your screenshot vibe closely)
+BG = "#111315"
+CARD = "#1b1f23"
+TEXT = "#d7d7d7"
+MUTED = "#a8b0b7"
+BORDER = "#2a2f34"
+
+DEFAULT_BOOKED_BASE_URL = "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF"
+DEFAULT_BOOKED_DAYS = 1
+ROW_LIMIT = int(os.getenv("ROW_LIMIT", "250"))
 
 
-def to_int(val: str, default: int) -> int:
+def env(name: str, default: str = "") -> str:
+    v = os.getenv(name, default)
+    return v if v is not None else default
+
+
+def safe_int(v: str, default: int) -> int:
     try:
-        v = (val or "").strip()
-        if v == "":
+        v = (v or "").strip()
+        if not v:
             return default
         return int(v)
     except Exception:
         return default
 
 
-def download_pdf(url: str) -> bytes:
-    req = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (compatible; TarrantJailReportBot/1.0)"
-        },
-    )
-    with urllib.request.urlopen(req, timeout=60) as resp:
-        return resp.read()
+def fetch_pdf(url: str) -> bytes:
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    return r.content
 
 
-def parse_mmddyyyy(s: str) -> datetime | None:
+# -----------------------------
+# PDF Parsing (Booked-In)
+# -----------------------------
+
+NAME_CID_DATE_RE = re.compile(
+    r"^(?P<name>[A-Z][A-Z' \-]+,\s*[A-Z0-9][A-Z0-9' \-]+)\s+(?P<cid>\d{6,7})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})$"
+)
+CID_DATE_ONLY_RE = re.compile(r"^(?P<cid>\d{6,7})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})$")
+NAME_ONLY_RE = re.compile(r"^[A-Z][A-Z' \-]+,\s*[A-Z0-9][A-Z0-9' \-]+$")
+BOOKING_RE = re.compile(r"\b\d{2}-\d{7}\b")
+
+
+def extract_report_date_from_text(text: str) -> datetime | None:
+    # Finds first date like 2/2/2026 on the first page header if present
+    m = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", text)
+    if not m:
+        return None
     try:
-        return datetime.strptime(s, "%m/%d/%Y")
+        return datetime.strptime(m.group(1), "%m/%d/%Y")
     except Exception:
         return None
 
 
-# ----------------------------
-# Parsing: Booked-In PDF
-# ----------------------------
-
-RE_REPORT_DATE = re.compile(r"Report Date:\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})")
-RE_RECORD_START = re.compile(r"^(?P<name>.+?)\s+(?P<cid>\d{6,})\s+(?P<bookin>\d{1,2}/\d{1,2}/\d{4})\s*$")
-RE_BOOKING_NO = re.compile(r"(\d{2}-\d{7})")
-RE_CITY_STATE_ZIP = re.compile(r"^(.+?)\s+([A-Z]{2})\s+(\d{5})(?:-\d{4})?\s*$")
-
-
-def is_record_start(line: str) -> bool:
-    return bool(RE_RECORD_START.match(line.strip()))
-
-
-def parse_booked_in(pdf_bytes: bytes) -> tuple[str, list[dict]]:
-    """
-    Returns (report_date, records)
-    record: {name, book_in_date, description, address}
-    """
-    report_date = ""
+def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     records: list[dict] = []
+    pending = None  # holds (cid, date) when we see CID DATE line before NAME
+    current = None  # current record dict
 
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+        # report date from first page text if possible
+        first_text = pdf.pages[0].extract_text() or ""
+        report_dt = extract_report_date_from_text(first_text) or datetime.now()
+
         for page in pdf.pages:
             text = page.extract_text() or ""
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
-            # Pull report date (first one found wins)
-            if not report_date:
-                for ln in lines[:15]:
-                    m = RE_REPORT_DATE.search(ln)
-                    if m:
-                        report_date = m.group(1)
-                        break
-
-            # Skip header lines until we pass the column header
-            start_idx = 0
-            for i, ln in enumerate(lines):
-                if "Inmate Name" in ln and "Book In Date" in ln and "Description" in ln:
-                    start_idx = i + 1
-                    break
-
-            i = start_idx
-            while i < len(lines):
-                ln = lines[i]
-
-                m = RE_RECORD_START.match(ln)
-                if not m:
-                    i += 1
+            for ln in lines:
+                # Pattern A: NAME CID DATE
+                mA = NAME_CID_DATE_RE.match(ln)
+                if mA:
+                    if current:
+                        records.append(finalize_record(current))
+                    current = {
+                        "name": mA.group("name").strip(),
+                        "cid": mA.group("cid").strip(),
+                        "book_in_date": mA.group("date").strip(),
+                        "addr_lines": [],
+                        "charges": [],
+                    }
+                    pending = None
                     continue
 
-                name = m.group("name").strip()
-                # cid captured but NOT used in email
-                book_in_date = m.group("bookin").strip()
+                # Pattern B: CID DATE (line 1) + NAME (line 2)
+                mB = CID_DATE_ONLY_RE.match(ln)
+                if mB:
+                    if current:
+                        records.append(finalize_record(current))
+                        current = None
+                    pending = (mB.group("cid").strip(), mB.group("date").strip())
+                    continue
 
-                addr_line = ""
-                city_line = ""
-                description_parts: list[str] = []
+                if pending and NAME_ONLY_RE.match(ln):
+                    current = {
+                        "name": ln.strip(),
+                        "cid": pending[0],
+                        "book_in_date": pending[1],
+                        "addr_lines": [],
+                        "charges": [],
+                    }
+                    pending = None
+                    continue
 
-                # Next lines contain:
-                #   street + bookingNo + first description chunk
-                #   city state zip
-                j = i + 1
+                # If we hit a new NAME line unexpectedly while pending exists, treat pending as junk
+                if pending and not current and ln:
+                    # don’t glue pending into someone else's description
+                    # we drop pending if the expected NAME doesn’t come next
+                    pending = None
 
-                # Collect until next record start or end of page
-                while j < len(lines) and not is_record_start(lines[j]):
-                    cur = lines[j]
+                # Content lines (address/charges) for the current record
+                if not current:
+                    continue
 
-                    # City/state/zip line?
-                    if RE_CITY_STATE_ZIP.match(cur):
-                        city_line = cur
-                        j += 1
-                        continue
+                apply_content_line(current, ln)
 
-                    # Line that contains booking no is usually: "<street> <bookingNo> <desc...>"
-                    b = RE_BOOKING_NO.search(cur)
-                    if b:
-                        left = cur[:b.start()].strip()
-                        right = cur[b.end():].strip()
+        if current:
+            records.append(finalize_record(current))
 
-                        if left and not addr_line:
-                            addr_line = left
-
-                        if right:
-                            description_parts.append(right)
-
-                        # After booking line, description may continue on subsequent lines
-                        j += 1
-                        while j < len(lines) and not is_record_start(lines[j]):
-                            nxt = lines[j]
-                            if RE_CITY_STATE_ZIP.match(nxt):
-                                city_line = nxt
-                                j += 1
-                                continue
-                            # If we hit another booking line unexpectedly, treat as continuation too
-                            if RE_BOOKING_NO.search(nxt):
-                                description_parts.append(nxt)
-                                j += 1
-                                continue
-                            # Otherwise treat as description continuation
-                            description_parts.append(nxt)
-                            j += 1
-                        break
-                    else:
-                        # Sometimes a street line may appear without booking no (rare)
-                        if not addr_line and not RE_CITY_STATE_ZIP.match(cur):
-                            addr_line = cur
-                        j += 1
-
-                # Build full address
-                full_address = ""
-                if addr_line and city_line:
-                    full_address = f"{addr_line}, {city_line}"
-                elif addr_line:
-                    full_address = addr_line
-                elif city_line:
-                    full_address = city_line
-
-                description = " ".join(description_parts).strip()
-                description = re.sub(r"\s+", " ", description)
-
-                records.append({
-                    "name": name,
-                    "book_in_date": book_in_date,
-                    "description": description if description else "N/A",
-                    "address": full_address if full_address else "N/A",
-                })
-
-                i = j
-
-    if not report_date:
-        report_date = datetime.now().strftime("%m/%d/%Y")
-
-    return report_date, records
+    return report_dt, records
 
 
-# ----------------------------
+def apply_content_line(rec: dict, ln: str) -> None:
+    """
+    Splits lines into address fragments and charges.
+    Booking numbers (e.g., 26-0259229) are used as charge anchors.
+    """
+    bookings = list(BOOKING_RE.finditer(ln))
+    if bookings:
+        # Anything before the first booking looks like address (street or city line)
+        pre = ln[: bookings[0].start()].strip()
+        if pre:
+            rec["addr_lines"].append(pre)
+
+        # Parse each booking chunk as a charge
+        for i, b in enumerate(bookings):
+            start = b.end()
+            end = bookings[i + 1].start() if i + 1 < len(bookings) else len(ln)
+            chunk = ln[start:end].strip(" -\t")
+            if chunk:
+                rec["charges"].append(chunk)
+        return
+
+    # No booking number found; decide whether it's address or continuation
+    # Heuristic: if we haven't collected any charges yet, lines with digits are usually address.
+    if not rec["charges"]:
+        rec["addr_lines"].append(ln)
+        return
+
+    # Otherwise, treat as continuation of the last charge (wrap lines)
+    rec["charges"][-1] = (rec["charges"][-1] + " " + ln).strip()
+
+
+def finalize_record(rec: dict) -> dict:
+    # Clean up charges: collapse excessive whitespace
+    charges = []
+    for c in rec["charges"]:
+        c2 = re.sub(r"\s+", " ", c).strip()
+        if c2:
+            charges.append(c2)
+
+    addr_lines = []
+    for a in rec["addr_lines"]:
+        a2 = re.sub(r"\s+", " ", a).strip()
+        if a2:
+            addr_lines.append(a2)
+
+    return {
+        "name": rec["name"],
+        "book_in_date": rec["book_in_date"],
+        "address": "\n".join(addr_lines),
+        "description": "\n".join(charges),
+    }
+
+
+# -----------------------------
 # HTML rendering
-# ----------------------------
+# -----------------------------
 
-def build_html(report_date: str, records: list[dict], max_rows: int) -> tuple[str, str]:
-    # Accent color: reuse your existing orange
-    ACCENT_ORANGE = "#f28c28"
+def html_escape(s: str) -> str:
+    return (
+        (s or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
 
-    title = f"Tarrant County Jail Report — {report_date}"
 
-    # Arrest date is one day behind report date
-    rd = parse_mmddyyyy(report_date)
-    arrest_date = (rd - timedelta(days=1)).strftime("%m/%d/%Y") if rd else report_date
-    subtitle = f"Summary of arrests in Tarrant County for {arrest_date}"
+def render_html(header_date: datetime, booked_records: list[dict]) -> str:
+    # As requested: arrests date is 1 day behind header date
+    arrests_date = (header_date - timedelta(days=1)).strftime("%-m/%-d/%Y")
+    header_date_str = header_date.strftime("%-m/%-d/%Y")
 
-    # Simplified source note (no formatting disclaimer)
-    source_note = "Source: Tarrant County Criminal Justice data."
+    total = len(booked_records)
+    shown = min(total, ROW_LIMIT)
 
-    total = len(records)
-    shown = records[:max_rows]
+    rows_html = []
+    for r in booked_records[:ROW_LIMIT]:
+        name = html_escape(r["name"])
+        addr = html_escape(r["address"]).replace("\n", "<br>")
+        desc = html_escape(r["description"]).replace("\n", "<br>")
+        date = html_escape(r["book_in_date"])
 
-    def esc(s: str) -> str:
-        return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        # Name in orange + bold; address normal (code-ish font)
+        name_block = f"""
+          <div style="font-weight:800; color:{ORANGE}; letter-spacing:0.2px;">{name}</div>
+          <div style="margin-top:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{TEXT}; font-size:13px; line-height:1.35;">
+            {addr}
+          </div>
+        """
 
-    # Total bookings line (code-style) under Booked-In header
+        rows_html.append(f"""
+          <tr>
+            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top;">{name_block}</td>
+            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top; color:{TEXT}; white-space:nowrap;">{date}</td>
+            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top; color:{TEXT};">{desc}</td>
+          </tr>
+        """)
+
     bookings_line = f"""
-      <div style="
-        margin: 10px 0 14px 0;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
-        font-size: 16px;
-        line-height: 1.4;">
-        <span style="color: {ACCENT_ORANGE}; font-weight: 800;">{total}</span>
-        <span style="color: #666;"> new bookings in the last 24 hours</span>
+      <div style="margin-top:10px; font-size:15px; color:{MUTED};">
+        Total bookings in the last 24 hours:
+        <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{ORANGE}; font-weight:800;">
+          {total}
+        </span>
       </div>
     """
 
-    showing_line = (
-        f"<div style='margin-top:6px; color:#777;'>Showing first {max_rows} of {total} records.</div>"
-        if total > max_rows
-        else ""
-    )
+    source_line = f"""
+      <div style="margin-top:18px; color:{MUTED}; font-size:14px; line-height:1.5;">
+        This report is automated from Tarrant County data.
+      </div>
+    """
 
-    rows_html = []
-    for r in shown:
-        # Name now bold + orange (same as bookings number)
-        name_html = f"<div style='font-weight:900; color:{ACCENT_ORANGE};'>{esc(r['name'])}</div>"
-
-        # Address under name (monospace, normal weight)
-        addr_html = (
-            "<div style='margin-top:4px; "
-            "font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "
-            "\"Liberation Mono\", \"Courier New\", monospace; "
-            "font-size: 12px; color: #555;'>"
-            f"{esc(r['address'])}</div>"
-        )
-        name_cell = name_html + addr_html
-
-        rows_html.append(
-            "<tr>"
-            f"<td style='padding:10px; border-top:1px solid #e5e5e5; vertical-align:top;'>{name_cell}</td>"
-            f"<td style='padding:10px; border-top:1px solid #e5e5e5; white-space:nowrap; vertical-align:top; color:#333;'>{esc(r['book_in_date'])}</td>"
-            f"<td style='padding:10px; border-top:1px solid #e5e5e5; vertical-align:top; color:#222;'>{esc(r['description'])}</td>"
-            "</tr>"
-        )
-
-    html = f"""
+    return f"""
 <!doctype html>
 <html>
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Tarrant County Jail Report — {header_date_str}</title>
 </head>
-<body style="margin:0; padding:0; background:#f6f6f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
-  <div style="max-width:900px; margin:0 auto; padding:20px;">
-    <div style="background:#ffffff; border:1px solid #eaeaea; border-radius:12px; padding:22px;">
-      <div style="font-size:32px; font-weight:800; letter-spacing:-0.5px; margin:0 0 6px 0;">{esc(title)}</div>
-      <div style="font-size:18px; color:#555; margin:0 0 10px 0;">{esc(subtitle)}</div>
-      <div style="color:#777; font-size:13px; margin:0 0 14px 0;">{esc(source_note)}</div>
+<body style="margin:0; padding:0; background:{BG}; color:{TEXT}; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+  <div style="max-width:900px; margin:0 auto; padding:26px 18px 40px;">
+    <div style="background:{CARD}; border:1px solid {BORDER}; border-radius:14px; padding:22px 22px 18px;">
+      <div style="font-size:44px; font-weight:900; letter-spacing:-0.6px; line-height:1.05;">
+        Tarrant County Jail Report — {header_date_str}
+      </div>
 
-      <hr style="border:none; border-top:1px solid #ededed; margin:16px 0;"/>
+      <div style="margin-top:10px; font-size:20px; color:{MUTED}; line-height:1.35;">
+        Summary of arrests in Tarrant County for {arrests_date}
+      </div>
 
-      <div style="margin-top:10px; font-size:24px; font-weight:800; color:#111;">Booked-In (Last 24 Hours)</div>
+      <div style="margin-top:18px; height:1px; background:{BORDER};"></div>
+
+      {source_line}
+
+      <div style="margin-top:26px; font-size:34px; font-weight:900; letter-spacing:-0.3px;">
+        Booked-In (Last 24 Hours)
+      </div>
+
       {bookings_line}
-      {showing_line}
 
-      <div style="overflow-x:auto; margin-top:10px;">
-        <table style="width:100%; border-collapse:collapse; min-width:720px;">
+      <div style="margin-top:18px; color:{MUTED}; font-size:14px;">
+        Showing first {shown} of {total} records.
+      </div>
+
+      <div style="margin-top:16px; overflow:hidden; border-radius:12px; border:1px solid {BORDER};">
+        <table style="width:100%; border-collapse:collapse; background:#14181b;">
           <thead>
-            <tr style="background:#f1f1f1;">
-              <th style="text-align:left; padding:10px; border:1px solid #e5e5e5;">Name</th>
-              <th style="text-align:left; padding:10px; border:1px solid #e5e5e5; white-space:nowrap;">Book In Date</th>
-              <th style="text-align:left; padding:10px; border:1px solid #e5e5e5;">Description</th>
+            <tr style="background:#1a1f23;">
+              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER};">Name</th>
+              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER}; width:120px;">Book In Date</th>
+              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER};">Description</th>
             </tr>
           </thead>
           <tbody>
-            {''.join(rows_html) if rows_html else "<tr><td colspan='3' style='padding:12px;'>No records</td></tr>"}
+            {''.join(rows_html)}
           </tbody>
         </table>
       </div>
@@ -301,69 +304,52 @@ def build_html(report_date: str, records: list[dict], max_rows: int) -> tuple[st
 </html>
 """.strip()
 
-    subject = title
-    return subject, html
 
-
-# ----------------------------
-# Email
-# ----------------------------
+# -----------------------------
+# Email sending
+# -----------------------------
 
 def send_email(subject: str, html_body: str) -> None:
-    to_email = env("TO_EMAIL", required=True)
+    to_email = env("TO_EMAIL", "").strip()
+    smtp_user = env("SMTP_USER", "").strip()
+    smtp_pass = env("SMTP_PASS", "").strip()
 
-    smtp_host = env("SMTP_HOST", required=True)
-    smtp_user = env("SMTP_USER", required=True)
-    smtp_pass = env("SMTP_PASS", required=True)
+    # Safe defaults so we don't break when you didn't define these
+    smtp_host = env("SMTP_HOST", "smtp.gmail.com").strip()
+    smtp_port = safe_int(env("SMTP_PORT", "465"), 465)
 
-    smtp_port = to_int(env("SMTP_PORT", "465"), 465)
-    smtp_mode = env("SMTP_MODE", "ssl").lower()  # "ssl" or "starttls"
-    from_email = env("FROM_EMAIL", smtp_user)
+    if not to_email or not smtp_user or not smtp_pass:
+        raise RuntimeError("Missing required email env vars: TO_EMAIL, SMTP_USER, SMTP_PASS")
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = from_email
+    msg["From"] = smtp_user
     msg["To"] = to_email
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    if smtp_mode == "starttls":
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=60) as server:
-            server.ehlo()
-            server.starttls(context=ssl.create_default_context())
-            server.ehlo()
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(from_email, [to_email], msg.as_string())
-    else:
-        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=60, context=ssl.create_default_context()) as server:
-            server.login(smtp_user, smtp_pass)
-            server.sendmail(from_email, [to_email], msg.as_string())
+    context = ssl.create_default_context()
+    with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context) as server:
+        server.login(smtp_user, smtp_pass)
+        server.sendmail(smtp_user, [to_email], msg.as_string())
 
 
-# ----------------------------
+# -----------------------------
 # Main
-# ----------------------------
+# -----------------------------
 
-def main() -> None:
-    booked_pdf_url = env(
-        "BOOKED_PDF_URL",
-        "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/01.PDF",
-        required=True,
-    )
-    max_rows = to_int(env("MAX_ROWS", "250"), 250)
+def main():
+    booked_base = env("BOOKED_BASE_URL", DEFAULT_BOOKED_BASE_URL).rstrip("/")
+    booked_day = env("BOOKED_DAY", "01").strip()  # keep simple: day 01
+    # If you later want rolling N days, we can do that — but you told me: keep it simple & don’t break shit.
 
-    print(f"[booked-in] downloading: {booked_pdf_url}")
-    pdf_bytes = download_pdf(booked_pdf_url)
-    print(f"[booked-in] downloaded bytes: {len(pdf_bytes)}")
+    booked_url = f"{booked_base}/{booked_day}.PDF"
+    pdf_bytes = fetch_pdf(booked_url)
 
-    report_date, records = parse_booked_in(pdf_bytes)
-    print(f"[booked-in] report_date: {report_date}")
-    print(f"[booked-in] parsed records: {len(records)}")
+    report_dt, booked_records = parse_booked_in(pdf_bytes)
 
-    subject, html_out = build_html(report_date, records, max_rows)
-
-    print("[email] sending...")
+    subject = f"Tarrant County Jail Report — {report_dt.strftime('%-m/%-d/%Y')}"
+    html_out = render_html(report_dt, booked_records)
     send_email(subject, html_out)
-    print("[email] sent.")
 
 
 if __name__ == "__main__":
