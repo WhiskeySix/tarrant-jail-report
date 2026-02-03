@@ -103,27 +103,30 @@ def clean_person_name(raw: str) -> str:
 #   - description wraps (later lines)
 # -----------------------------
 def parse_booked_in(lines: list[str], source_day: str) -> list[dict]:
+    """
+    Matches the actual Booked-In PDF layout:
+
+      NAME (all caps "LAST, FIRST ...")
+      address lines...
+      CID + DATE line: 0987623 2/1/2026
+      booking + charge line(s): 26-0259250 DRIVING WHILE INTOXICATED 2ND
+                               26-0259250 SEX OFFENDERS DUTY TO REGISTER...
+
+    Produces one record per (CID, Booking No).
+    """
+
     records_by_key = {}  # (cid, booking_no) -> record
 
-    # Pattern when line contains name + cid (common)
-    name_cid_pat = re.compile(r"^(?P<name>[A-Z][A-Z' -]+,\s*[A-Z][A-Z' -]+(?:\s+[A-Z][A-Z' -]+)?)\s+(?P<cid>\d{6,7})\b")
-
-    # Pattern when line contains date + booking + desc (CID might NOT be on this line)
-    date_booking_desc_pat = re.compile(
-        r"^(?P<date>\d{1,2}/\d{1,2}/\d{4})\s+"
-        r"(?P<booking>\d{2}-\d{7})\s+"
-        r"(?P<desc>.+)$"
-    )
-
-    # Pattern when line contains CID alone (sometimes appears on its own line)
-    cid_alone_pat = re.compile(r"^(?P<cid>\d{6,7})$")
+    cid_date_pat = re.compile(r"^(?P<cid>\d{6,7})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})$")
+    booking_charge_pat = re.compile(r"^(?P<booking>\d{2}-\d{7})\s+(?P<desc>.+)$")
 
     current_name = None
     current_cid = None
+    current_date = None
     last_key = None
 
     for ln in lines:
-        # skip headers
+        # Skip obvious headers
         if "Inmates Booked In During the Past 24 Hours" in ln:
             continue
         if ln.startswith("Report Date:") or ln.startswith("Page:"):
@@ -131,83 +134,70 @@ def parse_booked_in(lines: list[str], source_day: str) -> list[dict]:
         if ln.startswith("Inmate Name") or ln.startswith("Identifier CID"):
             continue
 
-        # 1) name + cid on same line
-        m_nc = name_cid_pat.match(ln)
-        if m_nc:
-            current_name = m_nc.group("name").strip()
-            current_cid = m_nc.group("cid").strip()
-            last_key = None
-            continue
-
-        # 2) name alone line
+        # New inmate begins
         if looks_like_name(ln):
             current_name = ln.strip()
             current_cid = None
+            current_date = None
             last_key = None
             continue
 
-        # 3) cid alone line (if name was previous line)
-        m_cid = cid_alone_pat.match(ln)
-        if m_cid and current_name:
-            current_cid = m_cid.group("cid").strip()
-            continue
-
-        # If we don't have a name yet, can't attach anything
+        # Wait until we have a name before trying to bind CID/booking data
         if not current_name:
             continue
 
-        # 4) date + booking + desc line (attach using current_name + current_cid)
-        m_dbd = date_booking_desc_pat.match(ln)
-        if m_dbd:
-            date = m_dbd.group("date").strip()
-            booking = m_dbd.group("booking").strip()
-            desc = m_dbd.group("desc").strip()
-
-            # Sometimes CID is embedded in the same line even if not at start
-            if not current_cid:
-                cid_search = re.search(r"\b(\d{6,7})\b", ln)
-                if cid_search:
-                    current_cid = cid_search.group(1)
-
-            # If still no CID, we cannot match later — but we still store it with a synthetic CID key
-            cid_value = current_cid if current_cid else f"NO_CID_{current_name}_{booking}"
-
-            if desc and not is_probably_address(desc):
-                key = (cid_value, booking)
-                rec = records_by_key.get(key)
-                if not rec:
-                    rec = {
-                        "cid": cid_value,
-                        "name": current_name,
-                        "book_in_date": date,
-                        "booking_no": booking,
-                        "charges": [],
-                        "source_day": source_day
-                    }
-                    records_by_key[key] = rec
-                rec["charges"].append(desc)
-                last_key = key
+        # CID + Book In Date line (this is the anchor)
+        m_cd = cid_date_pat.match(ln)
+        if m_cd:
+            current_cid = m_cd.group("cid").strip()
+            current_date = m_cd.group("date").strip()
+            last_key = None
             continue
 
-        # 5) wrapped charge line (all caps) after we’ve captured a record
+        # Booking + Charge line(s)
+        m_bc = booking_charge_pat.match(ln)
+        if m_bc and current_cid and current_date:
+            booking_no = m_bc.group("booking").strip()
+            desc = re.sub(r"\s+", " ", m_bc.group("desc")).strip()
+
+            # Ignore junk that’s clearly not a charge
+            if not desc or is_probably_address(desc):
+                continue
+
+            key = (current_cid, booking_no)
+            rec = records_by_key.get(key)
+            if not rec:
+                rec = {
+                    "cid": current_cid,
+                    "name": current_name,
+                    "book_in_date": current_date,
+                    "booking_no": booking_no,
+                    "charges": [],
+                    "source_day": source_day,
+                }
+                records_by_key[key] = rec
+
+            rec["charges"].append(desc)
+            last_key = key
+            continue
+
+        # If charges wrap (rare but happens): add uppercase continuation lines
         if last_key and ln.isupper() and len(ln) > 10 and not is_probably_address(ln):
-            records_by_key[last_key]["charges"].append(ln)
+            records_by_key[last_key]["charges"].append(ln.strip())
             continue
 
-    # finalize
+    # Finalize (dedupe charges + top_charge)
     out = []
     for rec in records_by_key.values():
-        # dedupe charges
         seen = set()
-        charges = []
+        cleaned = []
         for c in rec["charges"]:
             c = re.sub(r"\s+", " ", c).strip()
             if c and c not in seen:
                 seen.add(c)
-                charges.append(c)
-
-        rec["charges"] = charges
-        rec["top_charge"] = charges[0] if charges else ""
+                cleaned.append(c)
+        rec["charges"] = cleaned
+        rec["top_charge"] = cleaned[0] if cleaned else ""
         out.append(rec)
 
     return out
