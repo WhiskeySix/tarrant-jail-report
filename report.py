@@ -1,252 +1,190 @@
-#!/usr/bin/env python3
 import os
+import io
 import re
 import ssl
 import smtplib
 import urllib.request
-from datetime import datetime
-from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 import pdfplumber
 
 
-# ----------------------------
-# Config
-# ----------------------------
-
-TABLE_LIMIT_DEFAULT = 150
-
-BOOKING_NO_RE = re.compile(r"\b\d{2}-\d{7}\b")          # e.g. 26-0259188
-DATE_RE = re.compile(r"\b\d{1,2}/\d{1,2}/\d{4}\b")      # e.g. 2/1/2026
-CID_RE = re.compile(r"\b\d{6,8}\b")                    # e.g. 1069424 (varies)
-REPORT_DATE_RE = re.compile(r"Report Date:\s*(\d{1,2}/\d{1,2}/\d{4})", re.I)
-
-STREET_HINTS = {
-    " RD", " DR", " ST", " AVE", " BLVD", " LN", " CT", " TRL", " WAY", " HWY", " PKWY",
-    " CIR", " TER", " PL", " LOOP", " CV", " PKY"
-}
-
-
-def env(name: str, default: str | None = None, required: bool = False) -> str:
-    v = os.getenv(name, default)
-    if required and (v is None or str(v).strip() == ""):
+# -----------------------------
+# Helpers
+# -----------------------------
+def env(name: str, default=None, required: bool = False) -> str:
+    val = os.getenv(name, default)
+    if required and (val is None or str(val).strip() == ""):
         raise RuntimeError(f"Missing required environment variable: {name}")
-    return v if v is not None else ""
-
-
-def normalize_spaces(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "").strip())
-
-
-def is_header_or_noise(line: str) -> bool:
-    l = normalize_spaces(line)
-    if not l:
-        return True
-    # Common headers / column headers
-    header_phrases = [
-        "Inmates Booked In During the Past 24 Hours",
-        "Inmate Name",
-        "Identifier CID",
-        "Book In Date",
-        "Booking No.",
-        "Description",
-        "Page:",
-    ]
-    return any(p.lower() in l.lower() for p in header_phrases)
-
-
-def looks_like_address(line: str) -> bool:
-    l = normalize_spaces(line)
-    if not l:
-        return False
-    # Street address often starts with a number
-    if l[0].isdigit():
-        u = " " + l.upper()
-        return any(h in u for h in STREET_HINTS)
-    # City/state/zip line often includes TX and a zip
-    if " TX " in (" " + l.upper() + " ") and re.search(r"\b\d{5}\b", l):
-        return True
-    return False
-
-
-def looks_like_name_line(line: str) -> bool:
-    l = normalize_spaces(line)
-    if not l:
-        return False
-    # Name lines are usually uppercase and contain a comma
-    # Avoid lines that clearly contain dates / booking numbers
-    if DATE_RE.search(l) or BOOKING_NO_RE.search(l):
-        return False
-    if "," not in l:
-        return False
-    # Must have letters and be mostly uppercase (PDF extraction tends to uppercase)
-    letters = re.sub(r"[^A-Za-z]", "", l)
-    if len(letters) < 3:
-        return False
-    # Some lines may not be perfectly uppercase, so just require it not be "sentence case"
-    return True
-
-
-def clean_desc_piece(line: str) -> str:
-    l = normalize_spaces(line)
-    # Remove stray column artifacts
-    return l
-
-
-def extract_report_date(pages_text: list[str]) -> str:
-    """
-    Try to find "Report Date: M/D/YYYY" anywhere in the PDF text.
-    Fallback to today's date (local runner time) if not found.
-    """
-    for t in pages_text:
-        m = REPORT_DATE_RE.search(t)
-        if m:
-            return m.group(1)
-    return datetime.now().strftime("%m/%d/%Y")
+    return str(val) if val is not None else ""
 
 
 def download_pdf(url: str) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; TarrantJailReport/1.0)",
+            "Accept": "application/pdf,*/*",
+        },
+    )
     with urllib.request.urlopen(req, timeout=60) as resp:
         return resp.read()
 
 
-def parse_booked_in(pdf_bytes: bytes) -> tuple[str, list[dict]]:
+def html_escape(s: str) -> str:
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+# -----------------------------
+# Booked-In parser (column position based)
+# Output rows: Name | CID | Book In Date | Description
+# -----------------------------
+def parse_report_date(pdf: pdfplumber.PDF) -> str:
+    # Look for "Report Date: m/d/yyyy" on the first page
+    first = pdf.pages[0].extract_text() or ""
+    m = re.search(r"Report Date:\s*([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})", first)
+    if m:
+        return m.group(1)
+    # fallback: unknown
+    return "Unknown Date"
+
+
+def rows_from_page(page: pdfplumber.page.Page):
     """
-    Parse Booked-In PDF (JailedInmates FinalPDF/01.PDF) into records:
-      Name | CID | Book In Date | Description
+    Reconstruct row "cells" by x-position buckets.
+    We use the header positions to set column boundaries.
 
-    Strategy:
-      - Identify record boundaries by Booking No pattern (NN-NNNNNNN).
-      - Look backward a few lines to find Name, CID, Date.
-      - Build Description from the text on the booking line + subsequent lines
-        until the next booking line.
-      - Ignore obvious address lines and header lines.
+    Expected headers:
+      Inmate Name | Identifier CID | Book In Date | Booking No. | Description
     """
-    pages_text = []
-    all_lines: list[str] = []
+    words = page.extract_words() or []
+    if not words:
+        return []
 
-    with pdfplumber.open(io=pdf_bytes) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text() or ""
-            pages_text.append(text)
-            lines = text.splitlines()
-            for ln in lines:
-                ln = ln.rstrip()
-                if ln is None:
-                    continue
-                all_lines.append(ln)
+    # Find header row by locating "Inmate" word
+    header_candidates = [w for w in words if w.get("text") == "Inmate"]
+    if not header_candidates:
+        return []
 
-    report_date = extract_report_date(pages_text)
+    header_top = header_candidates[0]["top"]
 
-    records: list[dict] = []
-    current = None
+    header_words = [w for w in words if abs(w["top"] - header_top) < 2.0]
+    header_words = sorted(header_words, key=lambda w: w["x0"])
 
-    def close_current():
-        nonlocal current
-        if not current:
-            return
-        # Final cleanup
-        current["name"] = normalize_spaces(current.get("name") or "—")
-        current["cid"] = normalize_spaces(current.get("cid") or "—")
-        current["book_in_date"] = normalize_spaces(current.get("book_in_date") or "—")
-        desc = normalize_spaces(current.get("description") or "—")
-        # Convert " | " duplication
-        desc = re.sub(r"\s*\|\s*", " | ", desc)
-        current["description"] = desc if desc else "—"
-        records.append(current)
-        current = None
+    # Column boundaries (tuned to your PDF layout)
+    # name: <230, cid: 230-315, date: 315-395, booking: 395-465, desc: 465+
+    bounds = [0, 230, 315, 395, 465, 2000]
 
-    # Pre-clean lines: keep original order but remove obvious noise
-    lines = [normalize_spaces(l) for l in all_lines if not is_header_or_noise(l)]
+    # Group words into physical rows by rounded top position
+    rows = {}
+    for w in words:
+        top = round(w["top"], 1)
+        rows.setdefault(top, []).append(w)
 
-    for i, line in enumerate(lines):
-        if not line:
+    out = []
+    for top in sorted(rows.keys()):
+        # skip header + page title lines
+        if top <= header_top + 1:
             continue
 
-        booking_match = BOOKING_NO_RE.search(line)
-        if booking_match:
-            # Start a new record (close previous)
-            close_current()
-
-            # Initialize
-            current = {
-                "name": "—",
-                "cid": "—",
-                "book_in_date": "—",
-                "description": "",
-            }
-
-            # Description begins on this line after booking no (or whole line if extraction is weird)
-            after = line[booking_match.end():].strip(" -|")
-            if after:
-                current["description"] = clean_desc_piece(after)
-
-            # Look back up to 8 lines for Name/CID/Date
-            name_idx = None
-            for j in range(i - 1, max(-1, i - 9), -1):
-                prev = lines[j]
-
-                if current["book_in_date"] == "—":
-                    dm = DATE_RE.search(prev)
-                    if dm:
-                        current["book_in_date"] = dm.group(0)
-
-                if current["cid"] == "—":
-                    # Prefer a digits-only CID line, but allow CID within a line
-                    if prev.isdigit() and 6 <= len(prev) <= 8:
-                        current["cid"] = prev
-                    else:
-                        cm = CID_RE.search(prev)
-                        if cm and prev.strip() == cm.group(0):
-                            current["cid"] = cm.group(0)
-
-                if name_idx is None and looks_like_name_line(prev) and not looks_like_address(prev):
-                    current["name"] = prev
-                    name_idx = j
-
-                if current["name"] != "—" and current["cid"] != "—" and current["book_in_date"] != "—":
+        ws = sorted(rows[top], key=lambda w: w["x0"])
+        cols = ["", "", "", "", ""]  # name, cid, date, booking, desc
+        for w in ws:
+            x = w["x0"]
+            txt = w["text"]
+            for i in range(5):
+                if bounds[i] <= x < bounds[i + 1]:
+                    cols[i] = (cols[i] + " " + txt).strip() if cols[i] else txt
                     break
 
-            # Handle wrapped names like:
-            #   "COLLINS," on one line and "DEMONTRION D" on the next line
-            if name_idx is not None and normalize_spaces(current["name"]).endswith(","):
-                # The continuation is usually the next line after the comma-line
-                if name_idx + 1 < len(lines):
-                    nxt = lines[name_idx + 1]
-                    if nxt and nxt.upper() == nxt and ("," not in nxt) and not looks_like_address(nxt) and not DATE_RE.search(nxt) and not BOOKING_NO_RE.search(nxt):
-                        current["name"] = normalize_spaces(current["name"] + " " + nxt)
-
+        # ignore footer noise
+        if cols[4].startswith("Page:") or cols[4].startswith("Report Date:"):
             continue
 
-        # If we are inside a record, accumulate description continuation lines
-        if current:
-            # Ignore addresses and obvious metadata
-            if looks_like_address(line):
-                continue
-            if DATE_RE.search(line) and line.strip() == DATE_RE.search(line).group(0):
-                continue
-            if CID_RE.search(line) and line.strip().isdigit() and 6 <= len(line.strip()) <= 8:
-                continue
-            if looks_like_name_line(line):
-                # Sometimes the PDF repeats a name line; don't treat as description
-                continue
+        out.append(cols)
 
-            # Keep lines that look like offenses/charges (often uppercase with symbols/digits)
-            piece = clean_desc_piece(line)
-            if piece:
-                if current["description"]:
-                    current["description"] += " | " + piece
-                else:
-                    current["description"] = piece
-
-    close_current()
-    return report_date, records
+    return out
 
 
-def build_html(report_date: str, records: list[dict], limit: int) -> str:
-    title = f"Tarrant County Jail Report — {report_date}"
+def parse_booked_in(pdf_bytes: bytes):
+    """
+    Returns:
+      report_date (str),
+      records: list[dict] with keys: name, cid, book_in_date, description
+    """
+    records = []
+
+    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        report_date = parse_report_date(pdf)
+
+        current = {"name": "", "cid": "", "book_in_date": ""}
+        pending_desc_parts = []
+
+        def flush_desc_into_record(desc: str):
+            desc = " ".join(desc.split()).strip()
+            if not desc:
+                return
+            # only save if we have the core identity fields
+            if current["name"] and current["cid"] and current["book_in_date"]:
+                records.append(
+                    {
+                        "name": current["name"],
+                        "cid": current["cid"],
+                        "book_in_date": current["book_in_date"],
+                        "description": desc,
+                    }
+                )
+
+        for page in pdf.pages:
+            rows = rows_from_page(page)
+            for name_col, cid_col, date_col, booking_col, desc_col in rows:
+                name_col = name_col.strip()
+                cid_col = cid_col.strip()
+                date_col = date_col.strip()
+                booking_col = booking_col.strip()
+                desc_col = desc_col.strip()
+
+                # Update name if present
+                # Names look like: LASTNAME, FIRST MIDDLE
+                if name_col and "," in name_col and len(name_col) >= 4:
+                    # New person often starts here
+                    current["name"] = name_col
+
+                # Update CID + date if present
+                if cid_col and re.fullmatch(r"\d{6,10}", cid_col) and date_col and re.fullmatch(
+                    r"\d{1,2}/\d{1,2}/\d{4}", date_col
+                ):
+                    current["cid"] = cid_col
+                    current["book_in_date"] = date_col
+
+                # Description fragments sometimes appear alone on their own row
+                if desc_col and not booking_col:
+                    pending_desc_parts.append(desc_col)
+
+                # Booking number often appears alone after the description row
+                # When we see a booking number, we treat that as "end of this charge entry"
+                if booking_col and re.fullmatch(r"\d{2}-\d{7}", booking_col):
+                    # If description is on same row, include it too
+                    if desc_col:
+                        pending_desc_parts.append(desc_col)
+
+                    full_desc = " ".join(pending_desc_parts).strip()
+                    flush_desc_into_record(full_desc)
+                    pending_desc_parts = []
+
+        return report_date, records
+
+
+# -----------------------------
+# HTML + Email
+# -----------------------------
+def build_html(report_date: str, records, limit: int):
     subtitle = f"Summary of arrests in Tarrant County for {report_date}"
     data_note = (
         "This report is automated from Tarrant County data. "
@@ -255,138 +193,57 @@ def build_html(report_date: str, records: list[dict], limit: int) -> str:
 
     total = len(records)
     shown = records[:limit]
+    trunc_note = ""
+    if total > limit:
+        trunc_note = f"<p style='margin:8px 0 0 0; color:#bbb;'>Showing first {limit} of {total} records.</p>"
+    else:
+        trunc_note = f"<p style='margin:8px 0 0 0; color:#bbb;'>Showing {total} records.</p>"
 
-    # Basic, consistent, readable email HTML
-    rows_html = []
+    # Table rows
+    trs = []
     for r in shown:
-        rows_html.append(
+        trs.append(
             "<tr>"
-            f"<td>{escape_html(r['name'])}</td>"
-            f"<td>{escape_html(r['cid'])}</td>"
-            f"<td>{escape_html(r['book_in_date'])}</td>"
-            f"<td>{escape_html(r['description'])}</td>"
+            f"<td>{html_escape(r['name'])}</td>"
+            f"<td>{html_escape(r['cid'])}</td>"
+            f"<td>{html_escape(r['book_in_date'])}</td>"
+            f"<td>{html_escape(r['description'])}</td>"
             "</tr>"
         )
 
-    table_html = (
-        "<table>"
-        "<thead><tr>"
-        "<th>Name</th><th>CID</th><th>Book In Date</th><th>Description</th>"
-        "</tr></thead>"
-        "<tbody>"
-        + "\n".join(rows_html if rows_html else ["<tr><td colspan='4'>No records found.</td></tr>"])
-        + "</tbody></table>"
-    )
+    table_html = f"""
+    <table style="width:100%; border-collapse:collapse; margin-top:12px; font-family:Arial, sans-serif; font-size:14px;">
+      <thead>
+        <tr>
+          <th style="text-align:left; border:1px solid #444; padding:10px; background:#222;">Name</th>
+          <th style="text-align:left; border:1px solid #444; padding:10px; background:#222;">CID</th>
+          <th style="text-align:left; border:1px solid #444; padding:10px; background:#222;">Book In Date</th>
+          <th style="text-align:left; border:1px solid #444; padding:10px; background:#222;">Description</th>
+        </tr>
+      </thead>
+      <tbody>
+        {''.join(trs) if trs else '<tr><td colspan="4" style="border:1px solid #444; padding:10px;">No records found.</td></tr>'}
+      </tbody>
+    </table>
+    """
 
-    html = f"""\
-<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <style>
-    body {{
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
-      margin: 0;
-      padding: 0;
-      background: #0b0b0c;
-      color: #f2f2f2;
-    }}
-    .wrap {{
-      max-width: 980px;
-      margin: 0 auto;
-      padding: 24px 16px 40px;
-    }}
-    .card {{
-      background: #121214;
-      border: 1px solid #2a2a2f;
-      border-radius: 14px;
-      padding: 18px 18px 10px;
-    }}
-    h1 {{
-      font-size: 28px;
-      line-height: 1.2;
-      margin: 0 0 8px;
-    }}
-    .sub {{
-      font-size: 14px;
-      color: #cfcfd6;
-      margin: 0 0 14px;
-    }}
-    .note {{
-      font-size: 12px;
-      color: #a7a7b2;
-      margin: 0 0 18px;
-    }}
-    .meta {{
-      font-size: 13px;
-      color: #cfcfd6;
-      margin: 0 0 12px;
-    }}
-    table {{
-      width: 100%;
-      border-collapse: collapse;
-      overflow: hidden;
-      border-radius: 12px;
-      border: 1px solid #2a2a2f;
-      background: #0f0f11;
-    }}
-    th, td {{
-      text-align: left;
-      vertical-align: top;
-      padding: 10px 10px;
-      border-bottom: 1px solid #232329;
-      border-right: 1px solid #232329;
-      font-size: 13px;
-    }}
-    th:last-child, td:last-child {{
-      border-right: none;
-    }}
-    tr:last-child td {{
-      border-bottom: none;
-    }}
-    th {{
-      background: #16161a;
-      color: #f2f2f2;
-      font-weight: 650;
-      font-size: 13px;
-    }}
-    td {{
-      color: #e8e8ee;
-    }}
-    .footer {{
-      font-size: 12px;
-      color: #9a9aa6;
-      margin-top: 14px;
-    }}
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <div class="card">
-      <h1>{escape_html(title)}</h1>
-      <p class="sub">{escape_html(subtitle)}</p>
-      <p class="note">{escape_html(data_note)}</p>
-      <p class="meta"><strong>Records parsed:</strong> {total} &nbsp; | &nbsp; <strong>Displayed:</strong> {min(total, limit)}</p>
+    html = f"""
+    <div style="background:#111; color:#eee; padding:22px; font-family:Arial, sans-serif;">
+      <h1 style="margin:0; font-size:28px;">Tarrant County Jail Report — {report_date}</h1>
+      <p style="margin:8px 0 0 0; color:#ccc; font-size:16px;">{html_escape(subtitle)}</p>
+
+      <hr style="border:none; border-top:1px solid #333; margin:16px 0;" />
+
+      <p style="margin:0 0 12px 0; color:#bbb; font-size:13px;">{html_escape(data_note)}</p>
+
+      <h2 style="margin:18px 0 6px 0; font-size:20px;">Booked-In (Last 24 Hours)</h2>
+      <p style="margin:0; color:#ddd;">{total} records parsed from Booked-In PDF</p>
+      {trunc_note}
+
       {table_html}
-      <p class="footer">Source: Tarrant County CJ Reports (Booked-In PDF Day 01).</p>
     </div>
-  </div>
-</body>
-</html>
-"""
-    return html
-
-
-def escape_html(s: str) -> str:
-    return (
-        (s or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-        .replace("'", "&#39;")
-    )
+    """
+    return html.strip()
 
 
 def send_email(subject: str, html_body: str):
@@ -394,49 +251,54 @@ def send_email(subject: str, html_body: str):
     smtp_user = env("SMTP_USER", required=True)
     smtp_pass = env("SMTP_PASS", required=True)
 
-    # Optional overrides
-    smtp_host = env("SMTP_HOST", default="smtp.gmail.com")
-    smtp_port = int(env("SMTP_PORT", default="587"))
-    from_email = env("FROM_EMAIL", default=smtp_user)
+    # Defaults that work for most SMTP providers (esp Gmail app-password)
+    smtp_host = env("SMTP_HOST", "smtp.gmail.com")
+    smtp_port = int(env("SMTP_PORT", "465"))
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
-    msg["From"] = from_email
+    msg["From"] = smtp_user
     msg["To"] = to_email
 
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
     context = ssl.create_default_context()
-    with smtplib.SMTP(smtp_host, smtp_port, timeout=60) as server:
-        server.ehlo()
-        server.starttls(context=context)
-        server.ehlo()
+    with smtplib.SMTP_SSL(smtp_host, smtp_port, context=context) as server:
         server.login(smtp_user, smtp_pass)
-        server.sendmail(from_email, [to_email], msg.as_string())
-
-    print(f"[email] Sent to {to_email} via {smtp_host}:{smtp_port} as {smtp_user}")
+        server.sendmail(smtp_user, [to_email], msg.as_string())
 
 
+# -----------------------------
+# Main
+# -----------------------------
 def main():
-    # Only use Booked-In Day 01
-    booked_base = env("BOOKED_BASE_URL", required=True).rstrip("/")
-    booked_url = f"{booked_base}/01.PDF"
+    # You can provide BOOKED_PDF_URL directly, OR provide BOOKED_BASE_URL + BOOKED_DAY (default "01")
+    booked_pdf_url = env("BOOKED_PDF_URL", "")
+    if not booked_pdf_url:
+        booked_base = env("BOOKED_BASE_URL", required=True).rstrip("/")
+        booked_day = env("BOOKED_DAY", "01").zfill(2)
+        booked_pdf_url = f"{booked_base}/{booked_day}.PDF"
 
-    table_limit = int(env("TABLE_LIMIT", default=str(TABLE_LIMIT_DEFAULT)))
+    table_limit = int(env("TABLE_LIMIT", "150"))
 
-    print(f"[booked-in] downloading: {booked_url}")
-    pdf_bytes = download_pdf(booked_url)
+    print(f"[booked-in] downloading: {booked_pdf_url}")
+    pdf_bytes = download_pdf(booked_pdf_url)
     print(f"[booked-in] downloaded bytes: {len(pdf_bytes)}")
 
     report_date, records = parse_booked_in(pdf_bytes)
-    print(f"[booked-in] parsed records: {len(records)} (showing up to {table_limit})")
-    print(f"[booked-in] report date: {report_date}")
+    print(f"[booked-in] report_date: {report_date}")
+    print(f"[booked-in] parsed records: {len(records)}")
+
+    html_out = build_html(report_date, records, limit=table_limit)
+
+    # Write a copy for debugging in the Actions logs/artifacts
+    with open("report.html", "w", encoding="utf-8") as f:
+        f.write(html_out)
 
     subject = f"Tarrant County Jail Report — {report_date}"
-    html = build_html(report_date, records, table_limit)
-
-    # If email fails, raise and fail workflow
-    send_email(subject, html)
+    print("[email] sending...")
+    send_email(subject, html_out)
+    print("[email] sent successfully.")
 
 
 if __name__ == "__main__":
