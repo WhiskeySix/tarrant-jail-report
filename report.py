@@ -58,7 +58,22 @@ NAME_CID_DATE_RE = re.compile(
 CID_DATE_ONLY_RE = re.compile(r"^(?P<cid>\d{6,7})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})$")
 NAME_ONLY_RE = re.compile(r"^[A-Z][A-Z' \-]+,\s*[A-Z0-9][A-Z0-9' \-]+$")
 BOOKING_RE = re.compile(r"\b\d{2}-\d{7}\b")
+CITY_STATE_ZIP_RE = re.compile(r"\b([A-Z][A-Z ]+?)\s+TX\s+(\d{5})\b")
+STREET_RE = re.compile(
+    r"\b\d{1,6}\s+[A-Z0-9#'./-]+\s+(?:AVE|AV|ST|RD|DR|LN|PL|CT|BLVD|HWY|PKWY|WAY|TRL|CIR|TER|PK|LOOP|FWY)\b",
+    re.IGNORECASE
+)
 
+def extract_city(addr_lines: list[str]) -> str:
+    """
+    From address lines, return CITY only (usually found in line like: 'FORT WORTH TX 76131').
+    If not found, return empty string.
+    """
+    for ln in reversed(addr_lines):
+        m = CITY_STATE_ZIP_RE.search(ln.upper())
+        if m:
+            return m.group(1).strip()
+    return ""
 
 def extract_report_date_from_text(text: str) -> datetime | None:
     # Finds first date like 2/2/2026 on the first page header if present
