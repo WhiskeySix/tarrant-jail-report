@@ -164,6 +164,12 @@ def apply_content_line(rec: dict, ln: str) -> None:
       - otherwise (especially before any charges exist) treat as first charge
     """
 
+    # --- SAFETY: ensure keys exist (prevents KeyError: 'charges') ---
+    if "addr_lines" not in rec or rec["addr_lines"] is None:
+        rec["addr_lines"] = []
+    if "charges" not in rec or rec["charges"] is None:
+        rec["charges"] = []
+
     # ---- ignore common PDF header/footer junk that leaks into rows ----
     junk_markers = (
         "Inmates Booked In During the Past 24 Hours",
@@ -178,13 +184,11 @@ def apply_content_line(rec: dict, ln: str) -> None:
     if any(j in ln for j in junk_markers):
         return
 
-    # ---- helpers ----
     def looks_like_address(s: str) -> bool:
         s_up = s.upper()
 
         # street number / unit patterns
         if re.search(r"\b\d{1,6}\b", s_up):
-            # common street suffixes
             if re.search(r"\b(ST|STREET|AVE|AVENUE|RD|ROAD|DR|DRIVE|LN|LANE|BLVD|CT|CIR|PL|PKWY|HWY|WAY)\b", s_up):
                 return True
 
@@ -192,7 +196,6 @@ def apply_content_line(rec: dict, ln: str) -> None:
         if re.search(r"\bTX\b", s_up) and re.search(r"\b\d{5}\b", s_up):
             return True
 
-        # some address-only lines are just the street suffix without TX/zip
         if re.search(r"\b(APT|UNIT|#)\b", s_up):
             return True
 
@@ -225,7 +228,6 @@ def apply_content_line(rec: dict, ln: str) -> None:
 
     # If we already have charges, decide if this is address leakage or charge continuation
     if looks_like_address(ln):
-        # late address leakage: store it (we'll reduce to city later)
         rec["addr_lines"].append(ln)
         return
 
