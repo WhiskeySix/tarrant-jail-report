@@ -15,14 +15,21 @@ import pdfplumber
 # Config / helpers
 # -----------------------------
 
-ORANGE = "#f4a261"
+# CLI purple vibe (Monokai-ish / VS Code-ish)
+PURPLE = "#c792ea"
+
+# Keep your existing palette structure
 BG = "#111315"
 CARD = "#1b1f23"
 TEXT = "#d7d7d7"
 MUTED = "#a8b0b7"
 BORDER = "#2a2f34"
 
+# Code font stack
+CODE_FONT = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace"
+
 DEFAULT_BOOKED_BASE_URL = "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF"
+DEFAULT_BOOKED_DAYS = 1
 ROW_LIMIT = int(os.getenv("ROW_LIMIT", "250"))
 
 
@@ -47,15 +54,6 @@ def fetch_pdf(url: str) -> bytes:
     return r.content
 
 
-def html_escape(s: str) -> str:
-    return (
-        (s or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
-
-
 # -----------------------------
 # PDF Parsing (Booked-In)
 # -----------------------------
@@ -65,38 +63,11 @@ NAME_CID_DATE_RE = re.compile(
 )
 CID_DATE_ONLY_RE = re.compile(r"^(?P<cid>\d{6,7})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})$")
 NAME_ONLY_RE = re.compile(r"^[A-Z][A-Z' \-]+,\s*[A-Z0-9][A-Z0-9' \-]+$")
-
-# Booking number (used when present)
 BOOKING_RE = re.compile(r"\b\d{2}-\d{7}\b")
-
-# City detection and TX/ZIP
-TX_ZIP_RE = re.compile(r"\bTX\b\s+\d{5}\b", re.IGNORECASE)
-
-# Street suffixes (address signal)
-STREET_SUFFIX_RE = re.compile(
-    r"\b(ST|STREET|AVE|AVENUE|RD|ROAD|DR|DRIVE|LN|LANE|BLVD|CT|CIR|PL|PKWY|HWY|WAY|TRL|TER|PKY|PKWY)\b",
-    re.IGNORECASE
-)
-
-# Common header/footer junk that leaks into rows
-JUNK_MARKERS = (
-    "Inmates Booked In During the Past 24 Hours",
-    "Report Date:",
-    "Page:",
-    "Inmate Name Identifier",
-    "Inmate Name",
-    "Identifier",
-    "CID",
-    "Book In Date",
-    "Booking No.",
-    "Description",
-)
-
-# Some PDFs stick "FORT WORTH TX 76155" directly onto the end of a charge line
-TRAILING_CITY_TX_ZIP_RE = re.compile(r"\b([A-Z][A-Z \-']+)\s+TX\s+\d{5}\b")
 
 
 def extract_report_date_from_text(text: str) -> datetime | None:
+    # Finds first date like 2/2/2026 on the first page header if present
     m = re.search(r"(\d{1,2}/\d{1,2}/\d{4})", text)
     if not m:
         return None
@@ -106,114 +77,13 @@ def extract_report_date_from_text(text: str) -> datetime | None:
         return None
 
 
-def looks_like_address(s: str) -> bool:
-    su = (s or "").upper()
-
-    # obvious header/footer junk is NOT an address
-    if any(j.upper() in su for j in JUNK_MARKERS):
-        return False
-
-    # typical street number + suffix
-    if re.search(r"\b\d{1,6}\b", su) and STREET_SUFFIX_RE.search(su):
-        return True
-
-    # TX + ZIP line
-    if TX_ZIP_RE.search(su):
-        return True
-
-    # apt/unit markers
-    if re.search(r"\b(APT|UNIT|#)\b", su):
-        return True
-
-    return False
-
-
-def extract_city_from_address_lines(addr_lines: list[str]) -> str:
-    """
-    Try to pull city from address lines.
-    Prefers lines that look like 'FORT WORTH TX 76102' or 'FORT WORTH TX'
-    If not found, returns empty string.
-    """
-    # Search from bottom up (city usually later)
-    for line in reversed(addr_lines or []):
-        su = line.upper().strip()
-
-        # If line has TX + ZIP, city is what comes before TX
-        if TX_ZIP_RE.search(su):
-            parts = su.split(" TX", 1)
-            city_part = parts[0].strip()
-            # If it also includes street number, strip that off
-            # e.g. "1234 SOME ST FORT WORTH"
-            tokens = city_part.split()
-            # Heuristic: city is last 1-4 tokens, so keep last chunk after street-like stuff
-            # We'll take everything after the last street suffix, if present
-            # Otherwise take last 2 tokens minimum
-            m = STREET_SUFFIX_RE.search(city_part)
-            if m:
-                # if there is a suffix, likely street line, so city is after it (rare)
-                pass
-            # best guess: take last up to 4 tokens
-            city_tokens = tokens[-4:] if len(tokens) >= 2 else tokens
-            city = " ".join(city_tokens).title()
-            return city
-
-        # If line is just a city (like "FORT WORTH")
-        # It shouldn't have digits
-        if su and not re.search(r"\d", su) and len(su) <= 30:
-            # avoid picking up charge fragments like "DRIVING WHILE"
-            if not STREET_SUFFIX_RE.search(su) and su not in ("TX",):
-                return su.title()
-
-    return ""
-
-
-def clean_charge_text(text: str, person_name: str) -> str:
-    """
-    Force description to contain ONLY charge text:
-    - Remove PDF headers/footers
-    - Remove embedded inmate name repeats
-    - Remove address fragments (street / city TX zip)
-    - Collapse whitespace
-    """
-    t = (text or "").strip()
-    if not t:
-        return ""
-
-    # Drop known junk blocks
-    for j in JUNK_MARKERS:
-        t = t.replace(j, " ")
-
-    # Remove repeated inmate name + variants
-    if person_name:
-        pn = person_name.upper().strip()
-        t = re.sub(re.escape(pn), " ", t.upper()).strip()
-        t = t.replace("  ", " ")
-
-    # Remove booking numbers if they leaked into charge strings
-    t = BOOKING_RE.sub(" ", t)
-
-    # Remove street address fragments e.g. "2305 LENA ST" or "1517 CONNALLY TER"
-    t = re.sub(r"\b\d{1,6}\s+[A-Z0-9'\- ]{2,35}\b(" + STREET_SUFFIX_RE.pattern + r")\b", " ", t, flags=re.IGNORECASE)
-
-    # Remove "CITY TX 76123" tails
-    t = re.sub(r"\b[A-Z][A-Z \-']+\s+TX\s+\d{5}\b", " ", t, flags=re.IGNORECASE)
-
-    # Remove standalone TX + ZIP that might remain
-    t = re.sub(r"\bTX\s+\d{5}\b", " ", t, flags=re.IGNORECASE)
-
-    # Collapse whitespace
-    t = re.sub(r"\s+", " ", t).strip()
-
-    # Keep uppercase look like your PDF
-    return t.upper()
-
-
 def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     records: list[dict] = []
-    pending = None  # holds (cid, date)
-    current = None
+    pending = None  # holds (cid, date) when we see CID DATE line before NAME
+    current = None  # current record dict
 
     with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
+        # report date from first page text if possible
         first_text = pdf.pages[0].extract_text() or ""
         report_dt = extract_report_date_from_text(first_text) or datetime.now()
 
@@ -222,10 +92,6 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
             lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
 
             for ln in lines:
-                # ignore obvious junk lines early
-                if any(j in ln for j in JUNK_MARKERS):
-                    continue
-
                 # Pattern A: NAME CID DATE
                 mA = NAME_CID_DATE_RE.match(ln)
                 if mA:
@@ -241,7 +107,7 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
                     pending = None
                     continue
 
-                # Pattern B: CID DATE then NAME
+                # Pattern B: CID DATE (line 1) + NAME (line 2)
                 mB = CID_DATE_ONLY_RE.match(ln)
                 if mB:
                     if current:
@@ -261,10 +127,12 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
                     pending = None
                     continue
 
-                # if pending doesn't resolve cleanly, drop it
-                if pending and not current:
+                # If we hit a new NAME line unexpectedly while pending exists, treat pending as junk
+                if pending and not current and ln:
+                    # don’t glue pending into someone else's description
                     pending = None
 
+                # Content lines (address/charges) for the current record
                 if not current:
                     continue
 
@@ -278,28 +146,17 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
 
 def apply_content_line(rec: dict, ln: str) -> None:
     """
-    Robust: will never crash and will separate address-ish vs charge-ish lines.
-    Booking numbers (when present) anchor charge chunks.
+    Splits lines into address fragments and charges.
+    Booking numbers (e.g., 26-0259229) are used as charge anchors.
     """
-
-    # hard safety
-    if "addr_lines" not in rec or rec["addr_lines"] is None:
-        rec["addr_lines"] = []
-    if "charges" not in rec or rec["charges"] is None:
-        rec["charges"] = []
-
-    # junk filter
-    if any(j in ln for j in JUNK_MARKERS):
-        return
-
     bookings = list(BOOKING_RE.finditer(ln))
     if bookings:
-        # before first booking is likely address fragment
+        # Anything before the first booking looks like address (street or city line)
         pre = ln[: bookings[0].start()].strip()
-        if pre and looks_like_address(pre):
+        if pre:
             rec["addr_lines"].append(pre)
 
-        # booking chunks become charges
+        # Parse each booking chunk as a charge
         for i, b in enumerate(bookings):
             start = b.end()
             end = bookings[i + 1].start() if i + 1 < len(bookings) else len(ln)
@@ -308,61 +165,37 @@ def apply_content_line(rec: dict, ln: str) -> None:
                 rec["charges"].append(chunk)
         return
 
-    # No booking numbers:
-    # Decide if address line or charge line
-    if looks_like_address(ln):
+    # No booking number found; decide whether it's address or continuation
+    # Heuristic: if we haven't collected any charges yet, lines are usually address.
+    if not rec["charges"]:
         rec["addr_lines"].append(ln)
         return
 
-    # If we have no charges yet, this is our first charge line
-    if not rec["charges"]:
-        rec["charges"].append(ln)
-        return
-
-    # Otherwise continuation of the last charge (wrapped line)
+    # Otherwise, treat as continuation of the last charge (wrap lines)
     rec["charges"][-1] = (rec["charges"][-1] + " " + ln).strip()
 
 
 def finalize_record(rec: dict) -> dict:
-    # Clean addr lines
+    # Clean up charges: collapse excessive whitespace
+    charges = []
+    for c in rec["charges"]:
+        c2 = re.sub(r"\s+", " ", c).strip()
+        if c2:
+            charges.append(c2)
+
     addr_lines = []
-    for a in rec.get("addr_lines", []) or []:
+    for a in rec["addr_lines"]:
         a2 = re.sub(r"\s+", " ", a).strip()
-        if a2 and not any(j in a2 for j in JUNK_MARKERS):
+        if a2:
             addr_lines.append(a2)
 
-    # Build city: prefer extracted from addr lines; if still empty, try from charge lines (some PDFs embed city)
-    city = extract_city_from_address_lines(addr_lines)
-
-    # Clean charges and FORCE charge-only
-    raw_charge = " ".join((rec.get("charges", []) or [])).strip()
-    cleaned_charge = clean_charge_text(raw_charge, rec.get("name", ""))
-
-    # If still empty (rare), salvage from any addr line that doesn't look like address
-    if not cleaned_charge:
-        # Sometimes the PDF gives charges as non-address lines but got misrouted — salvage them.
-        salvage = []
-        for a in addr_lines:
-            if not looks_like_address(a):
-                salvage.append(a)
-        if salvage:
-            cleaned_charge = clean_charge_text(" ".join(salvage), rec.get("name", ""))
-
-    # If city is still empty, try to pull from the cleaned charge tail (CITY TX ZIP) before we stripped it (rare)
-    if not city:
-        m = TRAILING_CITY_TX_ZIP_RE.search(raw_charge.upper())
-        if m:
-            city = (m.group(1) or "").title().strip()
-
-    # Final fallback
-    if not city:
-        city = "Unknown"
-
     return {
-        "name": rec.get("name", "").strip(),
-        "book_in_date": rec.get("book_in_date", "").strip(),
-        "city": city.strip(),
-        "description": cleaned_charge.strip(),
+        "name": rec["name"],
+        "book_in_date": rec["book_in_date"],
+        # Your current behavior (address content is whatever parsing produced)
+        "address": "\n".join(addr_lines),
+        # Charges are charge-only lines (your working behavior)
+        "description": "\n".join(charges),
     }
 
 
@@ -370,104 +203,91 @@ def finalize_record(rec: dict) -> dict:
 # HTML rendering
 # -----------------------------
 
+def html_escape(s: str) -> str:
+    return (
+        (s or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
 def render_html(header_date: datetime, booked_records: list[dict]) -> str:
+    # As requested: arrests date is 1 day behind header date
     arrests_date = (header_date - timedelta(days=1)).strftime("%-m/%-d/%Y")
     header_date_str = header_date.strftime("%-m/%-d/%Y")
 
     total = len(booked_records)
     shown = min(total, ROW_LIMIT)
 
+    # ---- display-only stat: most common FULL charge (specific, not "DRIVING WHILE") ----
+    charge_counts = {}
+
+    def first_charge_line(desc: str) -> str | None:
+        if not desc:
+            return None
+        # take the first line shown in the Description column (already charge text)
+        line = desc.strip().splitlines()[0].strip()
+        if not line:
+            return None
+        # normalize whitespace only (no meaning changes)
+        return re.sub(r"\s+", " ", line).upper()
+
+    for r in booked_records:
+        ch = first_charge_line(r.get("description", ""))
+        if ch:
+            charge_counts[ch] = charge_counts.get(ch, 0) + 1
+
+    most_common_charge = (
+        max(charge_counts.items(), key=lambda kv: kv[1])[0]
+        if charge_counts else "Unknown"
+    )
+
     rows_html = []
     for r in booked_records[:ROW_LIMIT]:
-        name = html_escape(r.get("name", ""))
-        city = html_escape(r.get("city", "")).strip()
-        desc = html_escape(r.get("description", "")).replace("\n", "<br>")
-        date = html_escape(r.get("book_in_date", ""))
+        name = html_escape(r["name"])
+        addr = html_escape(r["address"]).replace("\n", "<br>")
+        desc = html_escape(r["description"]).replace("\n", "<br>")
+        date = html_escape(r["book_in_date"])
 
+        # Name now: PURPLE + BOLD + CODE FONT
         name_block = f"""
-          <div style="font-weight:800; color:{ORANGE}; letter-spacing:0.2px;">{name}</div>
-          <div style="margin-top:6px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{TEXT}; font-size:13px; line-height:1.35;">
-            {city}
+          <div style="font-weight:900; color:{PURPLE}; letter-spacing:0.2px; font-family:{CODE_FONT};">
+            {name}
+          </div>
+          <div style="margin-top:6px; font-family:{CODE_FONT}; color:{TEXT}; font-size:13px; line-height:1.35;">
+            {addr}
           </div>
         """
 
         rows_html.append(f"""
           <tr>
             <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top;">{name_block}</td>
-            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top; color:{TEXT}; white-space:nowrap;">{date}</td>
-            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top; color:{TEXT};">{desc}</td>
+            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top; color:{TEXT}; white-space:nowrap; font-family:{CODE_FONT};">{date}</td>
+            <td style="padding:14px 12px; border-top:1px solid {BORDER}; vertical-align:top; color:{TEXT}; font-family:{CODE_FONT};">{desc}</td>
           </tr>
         """)
 
-        # ---- display-only stats (NO parsing changes) ----
-    # City is already what you're showing under the name (your "address" field now holds city-only)
-    city_counts = {}
-    type_counts = {}
-
-    def clean_city(s: str) -> str:
-        s = (s or "").strip()
-        if not s:
-            return "Unknown"
-        # keep it simple: first line only (in case of any accidental wraps)
-        return s.splitlines()[0].strip() or "Unknown"
-
-    def arrest_type_from_desc(desc: str) -> str:
-        """
-        Display-only: take the first charge line, strip numbers/punctuation noise,
-        and use the first 2 words as the 'type' bucket.
-        This does NOT affect parsing or record contents.
-        """
-        first = (desc or "").strip().splitlines()[0].strip()
-        if not first:
-            return "Unknown"
-
-        # remove obvious non-type junk (numbers, CID-ish, zip-ish, etc.)
-        first = re.sub(r"\b\d+\b", " ", first)
-        first = re.sub(r"[^A-Za-z/ ]+", " ", first)  # keep letters and slash
-        first = re.sub(r"\s+", " ", first).strip()
-
-        if not first:
-            return "Unknown"
-
-        parts = first.split()
-        # bucket by first 2 words (e.g. "DRIVING WHILE", "POSS CS", "AGG ASSAULT")
-        return " ".join(parts[:2]).upper()
-
-    for r in booked_records:
-        c = clean_city(r.get("address", ""))
-        city_counts[c] = city_counts.get(c, 0) + 1
-
-        t = arrest_type_from_desc(r.get("description", ""))
-        type_counts[t] = type_counts.get(t, 0) + 1
-
-    most_common_type = max(type_counts.items(), key=lambda kv: kv[1])[0] if type_counts else "Unknown"
-    most_common_city = max(city_counts.items(), key=lambda kv: kv[1])[0] if city_counts else "Unknown"
-
+    # Total bookings + Most common charge (both in CODE font, purple value)
     bookings_line = f"""
-      <div style="margin-top:10px; font-size:15px; color:{MUTED};">
+      <div style="margin-top:10px; font-size:15px; color:{MUTED}; font-family:{CODE_FONT};">
         Total bookings in the last 24 hours:
-        <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{ORANGE}; font-weight:800;">
+        <span style="font-family:{CODE_FONT}; color:{PURPLE}; font-weight:900;">
           {total}
         </span>
       </div>
 
-      <div style="margin-top:6px; font-size:14px; color:{MUTED};">
-        Most common arrest type:
-        <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{TEXT}; font-weight:700;">
-          {html_escape(most_common_type)}
-        </span>
-      </div>
-
-      <div style="margin-top:4px; font-size:14px; color:{MUTED};">
-        City with most arrests:
-        <span style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; color:{TEXT}; font-weight:700;">
-          {html_escape(most_common_city)}
+      <div style="margin-top:6px; font-size:15px; color:{MUTED}; font-family:{CODE_FONT};">
+        Most common charge:
+        <span style="font-family:{CODE_FONT}; color:{PURPLE}; font-weight:900;">
+          {html_escape(most_common_charge)}
         </span>
       </div>
     """
 
+    # Keep it clean—no disclaimer
     source_line = f"""
-      <div style="margin-top:18px; color:{MUTED}; font-size:14px; line-height:1.5;">
+      <div style="margin-top:18px; color:{MUTED}; font-size:14px; line-height:1.5; font-family:{CODE_FONT};">
         This report is automated from Tarrant County data.
       </div>
     """
@@ -480,14 +300,14 @@ def render_html(header_date: datetime, booked_records: list[dict]) -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Tarrant County Jail Report — {header_date_str}</title>
 </head>
-<body style="margin:0; padding:0; background:{BG}; color:{TEXT}; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+<body style="margin:0; padding:0; background:{BG}; color:{TEXT}; font-family:{CODE_FONT};">
   <div style="max-width:900px; margin:0 auto; padding:26px 18px 40px;">
     <div style="background:{CARD}; border:1px solid {BORDER}; border-radius:14px; padding:22px 22px 18px;">
-      <div style="font-size:44px; font-weight:900; letter-spacing:-0.6px; line-height:1.05;">
+      <div style="font-size:44px; font-weight:900; letter-spacing:-0.6px; line-height:1.05; font-family:{CODE_FONT};">
         Tarrant County Jail Report — {header_date_str}
       </div>
 
-      <div style="margin-top:10px; font-size:20px; color:{MUTED}; line-height:1.35;">
+      <div style="margin-top:10px; font-size:20px; color:{MUTED}; line-height:1.35; font-family:{CODE_FONT};">
         Summary of arrests in Tarrant County for {arrests_date}
       </div>
 
@@ -495,23 +315,23 @@ def render_html(header_date: datetime, booked_records: list[dict]) -> str:
 
       {source_line}
 
-      <div style="margin-top:26px; font-size:34px; font-weight:900; letter-spacing:-0.3px;">
+      <div style="margin-top:26px; font-size:34px; font-weight:900; letter-spacing:-0.3px; font-family:{CODE_FONT};">
         Booked-In (Last 24 Hours)
       </div>
 
       {bookings_line}
 
-      <div style="margin-top:18px; color:{MUTED}; font-size:14px;">
+      <div style="margin-top:18px; color:{MUTED}; font-size:14px; font-family:{CODE_FONT};">
         Showing first {shown} of {total} records.
       </div>
 
       <div style="margin-top:16px; overflow:hidden; border-radius:12px; border:1px solid {BORDER};">
-        <table style="width:100%; border-collapse:collapse; background:#14181b;">
+        <table style="width:100%; border-collapse:collapse; background:#14181b; font-family:{CODE_FONT};">
           <thead>
             <tr style="background:#1a1f23;">
-              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER};">Name</th>
-              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER}; width:120px;">Book In Date</th>
-              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER};">Description</th>
+              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER}; font-family:{CODE_FONT};">Name</th>
+              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER}; width:120px; font-family:{CODE_FONT};">Book In Date</th>
+              <th style="text-align:left; padding:12px; color:{MUTED}; font-weight:700; border-bottom:1px solid {BORDER}; font-family:{CODE_FONT};">Description</th>
             </tr>
           </thead>
           <tbody>
@@ -535,6 +355,7 @@ def send_email(subject: str, html_body: str) -> None:
     smtp_user = env("SMTP_USER", "").strip()
     smtp_pass = env("SMTP_PASS", "").strip()
 
+    # Safe defaults so we don't break when you didn't define these
     smtp_host = env("SMTP_HOST", "smtp.gmail.com").strip()
     smtp_port = safe_int(env("SMTP_PORT", "465"), 465)
 
@@ -559,7 +380,7 @@ def send_email(subject: str, html_body: str) -> None:
 
 def main():
     booked_base = env("BOOKED_BASE_URL", DEFAULT_BOOKED_BASE_URL).rstrip("/")
-    booked_day = env("BOOKED_DAY", "01").strip()  # keep simple
+    booked_day = env("BOOKED_DAY", "01").strip()  # keep simple: day 01
 
     booked_url = f"{booked_base}/{booked_day}.PDF"
     pdf_bytes = fetch_pdf(booked_url)
