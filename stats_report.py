@@ -142,7 +142,7 @@ def format_snapshot(report_dt: datetime, booked_records: list[dict]) -> str:
     ]
 
     top_charge = top_single_charge(booked_records)
-    top_cities = city_breakdown(booked_records, top_n=6)
+    top_cities = city_breakdown(booked_records, top_n=12)
 
     # Build text email
     lines = []
@@ -172,8 +172,8 @@ def format_snapshot(report_dt: datetime, booked_records: list[dict]) -> str:
         city_total_shown += count
 
     other = total - city_total_shown
-    if other > 0:
-        lines.append(f"- Other: {pct(other, total)} ({other})")
+if other > 0:
+    lines.append(f"- All Other Cities: {pct(other, total)} ({other})")
 
     lines.append("")
     lines.append("Notes:")
