@@ -26,12 +26,7 @@ jobs:
       - name: Run stats snapshot
         env:
           TO_EMAIL: ${{ secrets.TO_EMAIL }}
-          STAT_TO_EMAIL: ${{ secrets.STAT_TO_EMAIL }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
-          BOOKED_DAY: ${{ secrets.BOOKED_DAY }}
         run: |
           python stats_report.py
