@@ -189,12 +189,19 @@ def extract_city_from_addr_lines(addr_lines: list[str]) -> str:
         if m:
             return normalize_ws(m.group("city").title())
 
-    # Sometimes extracted as "... FORT WORTH TX 76112" inside a longer line
+        # Sometimes extracted as "... FORT WORTH TX 76112" inside a longer line
     for ln in addr_lines:
         up = normalize_ws(ln).upper()
+
+        # Match at end of line
         m2 = re.search(r"([A-Z][A-Z \-']+)\s+TX\s+\d{5}(?:-\d{4})?$", up)
         if m2:
             return normalize_ws(m2.group(1).title())
+
+        # Match ANYWHERE in line (handles street+city in same line, commas, etc.)
+        m3 = re.search(r"\b([A-Z][A-Z \-']+),?\s+TX\s+\d{5}(?:-\d{4})?\b", up)
+        if m3:
+            return normalize_ws(m3.group(1).title())
 
     return "Unknown"
 
