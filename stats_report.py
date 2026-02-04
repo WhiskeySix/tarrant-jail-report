@@ -109,9 +109,7 @@ def top_single_charge(booked_records: list[dict]) -> str:
 def city_breakdown(booked_records: list[dict], top_n: int = 6) -> list[tuple[str, int]]:
     cities = []
     for r in booked_records:
-        c = normalize(r.get("city") or "Unknown")
-        if not c:
-            c = "Unknown"
+        c = extract_city_fallback(r)
         cities.append(c)
     return Counter(cities).most_common(top_n)
 
