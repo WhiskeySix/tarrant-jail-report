@@ -44,6 +44,35 @@ CATEGORY_RULES = [
 def normalize(s: str) -> str:
     return " ".join((s or "").strip().split())
 
+def extract_city_fallback(rec: dict) -> str:
+    """
+    Fallback city extraction when r['city'] is missing.
+    Attempts to parse city from address block inside description.
+    """
+    city = normalize(rec.get("city") or "")
+    if city:
+        return city
+
+    text = (rec.get("description") or "").upper()
+
+    # Common Tarrant County cities to look for
+    KNOWN_CITIES = [
+        "FORT WORTH", "ARLINGTON", "GRAND PRAIRIE",
+        "MANSFIELD", "BURLESON", "EULESS",
+        "BEDFORD", "HURST", "NORTH RICHLAND HILLS",
+        "RICHLAND HILLS", "HALTOM CITY", "WATAUGA",
+        "KELLER", "AZLE", "WHITE SETTLEMENT",
+        "FOREST HILL", "BENBROOK", "CROWLEY",
+        "EVERMAN", "SAGINAW", "LAKE WORTH",
+        "WESTWORTH VILLAGE"
+    ]
+
+    for c in KNOWN_CITIES:
+        if c in text:
+            return c.title()
+
+    return "Unknown"
+    
 def get_all_charge_text(rec: dict) -> str:
     # Your report.py stores all charges joined with \n in "description"
     return normalize((rec.get("description") or "")).upper()
