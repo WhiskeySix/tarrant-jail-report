@@ -1,1 +1,37 @@
+name: Daily Stats Snapshot
 
+on:
+  schedule:
+    # 7:30 AM Central is usually 13:30 UTC (adjust if you want)
+    - cron: "30 13 * * *"
+  workflow_dispatch:
+
+jobs:
+  run-stats:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run stats snapshot
+        env:
+          TO_EMAIL: ${{ secrets.TO_EMAIL }}
+          STAT_TO_EMAIL: ${{ secrets.STAT_TO_EMAIL }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
+          BOOKED_DAY: ${{ secrets.BOOKED_DAY }}
+        run: |
+          python stats.py
