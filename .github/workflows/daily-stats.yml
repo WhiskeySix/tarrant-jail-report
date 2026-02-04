@@ -34,4 +34,4 @@ jobs:
           BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
           BOOKED_DAY: ${{ secrets.BOOKED_DAY }}
         run: |
-          python stats.py
+          python stats_report.py
