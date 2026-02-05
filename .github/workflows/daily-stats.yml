@@ -1,4 +1,4 @@
-name: Daily Stats Snapshot
+name: Daily Graphic Snapshot
 
 on:
   schedule:
@@ -6,12 +6,17 @@ on:
     - cron: "30 13 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
-  run-stats:
+  build-graphic:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -23,10 +28,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run stats snapshot
+      - name: Render daily report graphic
         env:
-          TO_EMAIL: ${{ secrets.TO_EMAIL }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
+          BOOKED_DAY: ${{ secrets.BOOKED_DAY }}
+          COUNTY_LABEL: "Tarrant County, TX"
         run: |
-          python stats_report.py
+          python render_graphic.py
+
+      - name: Commit updated graphic
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/daily-report-latest.png output/archive/*.png
+          git commit -m "Update daily report graphic" || echo "No changes to commit"
+          git push
