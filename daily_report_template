@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Daily Jail Report &mdash; Tarrant County, TX &mdash; {{report_date}}</title>
+<!--[if mso]>
+<noscript>
+<xml>
+<o:OfficeDocumentSettings>
+<o:PixelsPerInch>96</o:PixelsPerInch>
+</o:OfficeDocumentSettings>
+</xml>
+</noscript>
+<![endif]-->
+<style type="text/css">
+  body, html { margin: 0; padding: 0; width: 100%; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+  body { background-color: #f0ece4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #2c2c2c; line-height: 1.5; }
+  table { border-collapse: collapse; mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+  img { border: 0; outline: none; text-decoration: none; -ms-interpolation-mode: bicubic; }
+  a { color: #b8860b; text-decoration: none; }
+  @media print {
+    body { background-color: #ffffff !important; }
+    .outer-wrapper { background-color: #ffffff !important; }
+    .report-container { box-shadow: none !important; }
+  }
+  @media only screen and (max-width: 660px) {
+    .report-container { width: 100% !important; }
+    .inner-pad { padding-left: 20px !important; padding-right: 20px !important; }
+    .stat-card { display: block !important; width: 100% !important; }
+    .stat-card-border { border-left: none !important; border-right: none !important; border-bottom: 1px solid #e4e0d8 !important; }
+    .snapshot-col { display: block !important; width: 100% !important; padding-left: 0 !important; padding-right: 0 !important; }
+    .snapshot-spacer { display: none !important; }
+    .booking-table td { padding: 8px 8px !important; font-size: 11px !important; }
+    .section-title { font-size: 16px !important; }
+  }
+</style>
+</head>
+<body style="margin:0; padding:0; background-color:#f0ece4; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+
+<!-- Preheader text (hidden, for email clients) -->
+<div style="display:none; max-height:0; overflow:hidden; mso-hide:all;">
+  Tarrant County Jail Report &mdash; {{report_date}} &mdash; {{total_bookings}} bookings in the last 24 hours. Top charge: {{top_charge}}.
+</div>
+
+<!-- Outer Wrapper -->
+<table class="outer-wrapper" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f0ece4;">
+<tr><td align="center" style="padding: 24px 12px 48px 12px;">
+
+<!-- Report Container -->
+<table class="report-container" role="presentation" width="680" cellpadding="0" cellspacing="0" border="0" style="background-color:#faf8f5; max-width:680px; width:100%; border-radius:3px; box-shadow: 0 1px 6px rgba(0,0,0,0.07);">
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- TOP ACCENT BAR                                 -->
+<!-- ═══════════════════════════════════════════════ -->
+<tr><td style="height:4px; background: linear-gradient(90deg, #2c2c2c 0%, #2c2c2c 70%, #c8a45a 70%, #c8a45a 100%); font-size:1px; line-height:1px;">&nbsp;</td></tr>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- HEADER                                         -->
+<!-- ═══════════════════════════════════════════════ -->
+<tr><td class="inner-pad" style="padding: 30px 40px 22px 40px;">
+
+  <!-- Brand pill -->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:16px;">
+    <tr>
+      <td style="border:1px solid #ccc8c0; border-radius:20px; padding:4px 16px; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:600; letter-spacing:2.5px; text-transform:uppercase; color:#888580;">
+        DAILY JAIL REPORT &middot; TARRANT COUNTY, TX
+      </td>
+    </tr>
+  </table>
+
+  <!-- Report title -->
+  <div style="font-family:Georgia, 'Times New Roman', Times, serif; font-size:30px; font-weight:700; color:#1a1a1a; line-height:1.15; margin-bottom:6px;">
+    Tarrant County Jail Report
+  </div>
+  <div style="font-family:Georgia, 'Times New Roman', Times, serif; font-size:16px; color:#888580; line-height:1.3; margin-bottom:16px;">
+    {{report_date_display}}
+  </div>
+
+  <!-- Thin divider -->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td style="height:1px; background-color:#ddd8d0; font-size:1px; line-height:1px;">&nbsp;</td></tr>
+  </table>
+
+  <!-- Classification & Source badges -->
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:14px;">
+    <tr>
+      <td style="padding-right:8px; vertical-align:middle;">
+        <span style="display:inline-block; background-color:#2c2c2c; color:#f0ece4; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:9px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; padding:5px 12px; border-radius:2px; line-height:1.4;">
+          UNCLASSIFIED // FOR INFORMATIONAL USE ONLY
+        </span>
+      </td>
+      <td style="vertical-align:middle;">
+        <span style="display:inline-block; background-color:#e8e4dc; color:#6b6760; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:9px; font-weight:600; letter-spacing:1.2px; text-transform:uppercase; padding:5px 12px; border-radius:2px; line-height:1.4;">
+          SOURCE: TARRANT COUNTY (CJ REPORTS)
+        </span>
+      </td>
+    </tr>
+  </table>
+
+</td></tr>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- KEY METRICS BAR                                -->
+<!-- ═══════════════════════════════════════════════ -->
+<tr><td class="inner-pad" style="padding: 0 40px;">
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f4f1eb; border-radius:4px; border:1px solid #e4e0d8;">
+    <tr>
+      <!-- Total Bookings -->
+      <td class="stat-card" width="34%" style="padding:20px 16px; text-align:center; vertical-align:top;">
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:9px; font-weight:600; letter-spacing:1.8px; text-transform:uppercase; color:#999590; margin-bottom:6px;">TOTAL BOOKINGS</div>
+        <div style="font-family:Georgia, 'Times New Roman', Times, serif; font-size:40px; font-weight:700; color:#1a1a1a; line-height:1;">
+          {{total_bookings}}
+        </div>
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:10px; color:#999590; margin-top:4px;">Last 24 Hours</div>
+      </td>
+      <!-- Report Date -->
+      <td class="stat-card stat-card-border" width="33%" style="padding:20px 16px; text-align:center; vertical-align:top; border-left:1px solid #e4e0d8; border-right:1px solid #e4e0d8;">
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:9px; font-weight:600; letter-spacing:1.8px; text-transform:uppercase; color:#999590; margin-bottom:6px;">REPORT DATE</div>
+        <div style="font-family:Georgia, 'Times New Roman', Times, serif; font-size:22px; font-weight:700; color:#1a1a1a; line-height:1.1;">
+          {{report_date}}
+        </div>
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:10px; color:#999590; margin-top:4px;">Published</div>
+      </td>
+      <!-- Arrests Date -->
+      <td class="stat-card" width="33%" style="padding:20px 16px; text-align:center; vertical-align:top;">
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:9px; font-weight:600; letter-spacing:1.8px; text-transform:uppercase; color:#999590; margin-bottom:6px;">ARRESTS DATE</div>
+        <div style="font-family:Georgia, 'Times New Roman', Times, serif; font-size:22px; font-weight:700; color:#1a1a1a; line-height:1.1;">
+          {{arrests_date}}
+        </div>
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:10px; color:#999590; margin-top:4px;">Booking Period</div>
+      </td>
+    </tr>
+  </table>
+
+</td></tr>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- DAILY SNAPSHOT                                 -->
+<!-- ═══════════════════════════════════════════════ -->
+<tr><td class="inner-pad" style="padding: 30px 40px 0 40px;">
+
+  <!-- Section heading -->
+  <div class="section-title" style="font-family:Georgia, 'Times New Roman', Times, serif; font-size:20px; font-weight:700; color:#1a1a1a; margin-bottom:3px;">
+    Daily Snapshot
+  </div>
+  <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:12px; color:#999590; margin-bottom:20px;">
+    Statistical summary of bookings for the 24-hour period ending {{arrests_date}}
+  </div>
+
+  <!-- Top Charge Callout -->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px; background-color:#2c2c2c; border-radius:4px;">
+    <tr>
+      <td style="padding:16px 22px;">
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:9px; font-weight:600; letter-spacing:1.8px; text-transform:uppercase; color:#c8a45a; margin-bottom:5px;">TOP CHARGE TODAY</div>
+        <div style="font-family:Georgia, 'Times New Roman', Times, serif; font-size:16px; font-weight:600; color:#faf8f5; line-height:1.3;">
+          {{top_charge}}
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Two-column layout: Charge Mix + Arrests by City -->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <!-- Charge Mix -->
+      <td class="snapshot-col" width="48%" style="vertical-align:top; padding-right:14px;">
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#888580; margin-bottom:10px;">CHARGE MIX</div>
+        <table class="charge-table" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:12px;">
+          {{charge_mix_rows}}
+        </table>
+      </td>
+
+      <!-- Spacer -->
+      <td class="snapshot-spacer" width="4%">&nbsp;</td>
+
+      <!-- Arrests by City -->
+      <td class="snapshot-col" width="48%" style="vertical-align:top; padding-left:14px;">
+        <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#888580; margin-bottom:10px;">ARRESTS BY CITY</div>
+        <table class="city-table" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:12px;">
+          {{city_rows}}
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</td></tr>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- CHARGE DISTRIBUTION BARS                       -->
+<!-- ═══════════════════════════════════════════════ -->
+<tr><td class="inner-pad" style="padding: 26px 40px 0 40px;">
+
+  <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:10px; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; color:#888580; margin-bottom:12px;">CHARGE DISTRIBUTION</div>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:11px;">
+    {{bar_rows}}
+  </table>
+
+</td></tr>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- SECTION DIVIDER                                -->
+<!-- ═══════════════════════════════════════════════ -->
+<tr><td class="inner-pad" style="padding: 30px 40px 0 40px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td style="height:2px; background-color:#2c2c2c; font-size:1px; line-height:1px;">&nbsp;</td></tr>
+  </table>
+</td></tr>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- FULL BOOKING LIST                              -->
+<!-- ═══════════════════════════════════════════════ -->
+<tr><td class="inner-pad" style="padding: 26px 40px 0 40px;">
+
+  <div class="section-title" style="font-family:Georgia, 'Times New Roman', Times, serif; font-size:20px; font-weight:700; color:#1a1a1a; margin-bottom:3px;">
+    Booked-In &mdash; Last 24 Hours
+  </div>
+  <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:12px; color:#999590; margin-bottom:18px;">
+    Showing all {{total_bookings}} of {{total_bookings}} records &bull; Sorted alphabetically by last name
+  </div>
+
+  <table class="booking-table" role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:12px; border:1px solid #ddd8d0; border-radius:4px; overflow:hidden;">
+
+    <!-- Table Header -->
+    <tr style="background-color:#2c2c2c;">
+      <td style="padding:11px 12px; font-size:9px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:#c8a45a; border-bottom:2px solid #c8a45a; width:5%;">#</td>
+      <td style="padding:11px 12px; font-size:9px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:#c8a45a; border-bottom:2px solid #c8a45a; width:26%;">NAME</td>
+      <td style="padding:11px 12px; font-size:9px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:#c8a45a; border-bottom:2px solid #c8a45a; width:12%;">BOOKED</td>
+      <td style="padding:11px 12px; font-size:9px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:#c8a45a; border-bottom:2px solid #c8a45a; width:40%;">CHARGE(S)</td>
+      <td style="padding:11px 12px; font-size:9px; font-weight:700; letter-spacing:1.2px; text-transform:uppercase; color:#c8a45a; border-bottom:2px solid #c8a45a; width:17%;">CITY</td>
+    </tr>
+
+    <!-- Booking Rows -->
+    {{booking_rows}}
+
+  </table>
+
+</td></tr>
+
+<!-- ═══════════════════════════════════════════════ -->
+<!-- FOOTER                                         -->
+<!-- ═══════════════════════════════════════════════ -->
+<tr><td class="inner-pad" style="padding: 32px 40px 8px 40px;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td style="height:1px; background-color:#ddd8d0; font-size:1px; line-height:1px;">&nbsp;</td></tr>
+  </table>
+</td></tr>
+
+<tr><td class="inner-pad" style="padding: 16px 40px 32px 40px;">
+
+  <!-- Classification repeat -->
+  <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:9px; font-weight:600; letter-spacing:1.5px; text-transform:uppercase; color:#999590; margin-bottom:12px; text-align:center;">
+    UNCLASSIFIED // FOR INFORMATIONAL USE ONLY
+  </div>
+
+  <!-- Disclaimer text -->
+  <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:11px; color:#999590; line-height:1.6; text-align:center; margin-bottom:14px;">
+    This report is generated from publicly available Tarrant County CJ Reports booking data.
+    It is provided for informational purposes only and does not constitute legal advice or an official record.
+    All individuals listed are presumed innocent until proven guilty in a court of law.
+    Data accuracy is dependent on the source and may contain errors or omissions.
+  </div>
+
+  <!-- Brand footer -->
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td style="text-align:center; padding-top:8px;">
+      <div style="font-family:Georgia, 'Times New Roman', Times, serif; font-size:13px; font-weight:700; color:#2c2c2c; letter-spacing:0.5px; margin-bottom:2px;">
+        DailyJailReports
+      </div>
+      <div style="font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size:10px; color:#999590;">
+        <a href="https://dailyjailreports.com" style="color:#b8860b; text-decoration:none;">dailyjailreports.com</a>
+        &nbsp;&middot;&nbsp; No speculation. No opinion. No noise.
+      </div>
+    </td></tr>
+  </table>
+
+</td></tr>
+
+<!-- Bottom accent bar -->
+<tr><td style="height:4px; background: linear-gradient(90deg, #c8a45a 0%, #c8a45a 30%, #2c2c2c 30%, #2c2c2c 100%); font-size:1px; line-height:1px;">&nbsp;</td></tr>
+
+</table><!-- end report-container -->
+
+</td></tr>
+</table><!-- end outer-wrapper -->
+
+</body>
+</html
