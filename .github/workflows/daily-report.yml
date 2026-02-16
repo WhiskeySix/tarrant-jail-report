@@ -39,6 +39,10 @@ jobs:
           # SMTP_HOST: smtp.example.com
           # SMTP_PORT: "587"
 
+          # Kit (ConvertKit) API credentials for broadcasting to subscribers
+          KIT_API_KEY: ${{ secrets.KIT_API_KEY }}
+          KIT_API_SECRET: ${{ secrets.KIT_API_SECRET }}
+
           # Report configuration (can be left as default)
           BOOKED_BASE_URL: https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF
           BOOKED_DAY: "01" # Fetches the PDF for the previous day
