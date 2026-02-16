@@ -1,0 +1,55 @@
+name: Generate Daily Jail Report
+
+on:
+  workflow_dispatch: # Allows manual runs
+  schedule:
+    - cron: "15 12 * * *" # 12:15 UTC daily (approx. 7:15 AM Central Time)
+
+jobs:
+  generate-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install System Dependencies for Headless Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Report Generation Script
+        env:
+          # Email credentials and recipient
+          TO_EMAIL: ${{ secrets.TO_EMAIL }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+
+          # Optional: Override SMTP server settings if not using Gmail
+          # SMTP_HOST: smtp.example.com
+          # SMTP_PORT: "587"
+
+          # Report configuration (can be left as default)
+          BOOKED_BASE_URL: https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF
+          BOOKED_DAY: "01" # Fetches the PDF for the previous day
+        run: |
+          python report.py
+
+      - name: Upload Artifacts (for debugging)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jail-report-artifacts
+          path: |
+            daily_jail_report.html
+            daily_jail_report.pdf
