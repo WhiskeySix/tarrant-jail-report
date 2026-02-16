@@ -1,4 +1,5 @@
 
+
 """
 # ---------------------------------------------------------------------------
 # Tarrant County Daily Jail Report
@@ -300,18 +301,45 @@ def render_html(data: dict) -> str:
         raise
 
     # --- Helper functions for building HTML snippets ---
-    def build_table_rows(items, is_city=False):
+    def build_charge_mix_bars(items):
+        """Build bar graph rows for Charge Mix section."""
         rows = []
-        for i, (label, pct, count) in enumerate(items):
-            border = "" if i == len(items) - 1 else "border-bottom:1px solid #e4e0d8;"
-            style = "color:#999590; font-weight:400; font-style:italic;" if label == "All Other Cities" else "color:#1a1a1a; font-weight:500;"
+        for label, pct_str, count in items:
+            pct = int(pct_str.replace("%", ""))
+            # Use gray color for "Other / Unknown", amber/gold for all others
+            color = "#a09890" if label == "Other / Unknown" else "#c8a45a"
             rows.append(f'''<tr>
-                <td style="padding:7px 8px 7px 0; {style} {border}">{html.escape(label)}</td>
-                <td style="padding:7px 0 7px 8px; {style.replace('500','700')} text-align:right; {border} white-space:nowrap;">{html.escape(pct)}&nbsp;<span style="color:#999590; font-weight:400; font-size:11px;">({count})</span></td>
-              </tr>''')
+              <td style="padding:3px 0; width:140px; color:#666360; font-size:11px; vertical-align:middle;">{html.escape(label)}</td>
+              <td style="padding:3px 8px; vertical-align:middle;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e8e4dc; border-radius:2px;">
+                  <tr><td style="width:{pct}%; background-color:{color}; height:14px; border-radius:2px; font-size:1px;">&nbsp;</td><td style="font-size:1px;">&nbsp;</td></tr>
+                </table>
+              </td>
+              <td style="padding:3px 0; width:70px; color:#1a1a1a; font-weight:700; text-align:right; font-size:11px; vertical-align:middle;">{pct}%&nbsp;<span style="color:#999590; font-weight:400; font-size:10px;">({count})</span></td>
+            </tr>''')
+        return "\n".join(rows)
+
+    def build_city_bars(items):
+        """Build bar graph rows for Arrests by City section."""
+        rows = []
+        for label, pct_str, count in items:
+            pct = int(pct_str.replace("%", ""))
+            # Use gray color for "All Other Cities", amber/gold for specific cities
+            color = "#a09890" if label == "All Other Cities" else "#c8a45a"
+            label_style = "color:#999590; font-style:italic;" if label == "All Other Cities" else "color:#666360;"
+            rows.append(f'''<tr>
+              <td style="padding:3px 0; width:140px; {label_style} font-size:11px; vertical-align:middle;">{html.escape(label)}</td>
+              <td style="padding:3px 8px; vertical-align:middle;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e8e4dc; border-radius:2px;">
+                  <tr><td style="width:{pct}%; background-color:{color}; height:14px; border-radius:2px; font-size:1px;">&nbsp;</td><td style="font-size:1px;">&nbsp;</td></tr>
+                </table>
+              </td>
+              <td style="padding:3px 0; width:70px; color:#1a1a1a; font-weight:700; text-align:right; font-size:11px; vertical-align:middle;">{pct}%&nbsp;<span style="color:#999590; font-weight:400; font-size:10px;">({count})</span></td>
+            </tr>''')
         return "\n".join(rows)
 
     def build_bar_rows(items):
+        """Build bar graph rows for Charge Distribution section."""
         rows = []
         for label, pct, color in items:
             rows.append(f'''<tr>
@@ -345,8 +373,8 @@ def render_html(data: dict) -> str:
         "{{arrests_date}}": data.get("arrests_date", ""),
         "{{total_bookings}}": str(data.get("total_bookings", 0)),
         "{{top_charge}}": html.escape(data.get("top_charge", "N/A")),
-        "{{charge_mix_rows}}": build_table_rows(data.get("charge_mix", [])),
-        "{{city_rows}}": build_table_rows(data.get("cities", []), is_city=True),
+        "{{charge_mix_rows}}": build_charge_mix_bars(data.get("charge_mix", [])),
+        "{{city_rows}}": build_city_bars(data.get("cities", [])),
         "{{bar_rows}}": build_bar_rows(data.get("charge_bars", [])),
         "{{booking_rows}}": build_booking_rows(data.get("bookings", [])),
     }
@@ -446,7 +474,7 @@ async def main():
     await generate_pdf_from_html(html_content)
 
     # 6. Send the email
-    subject = f"Tarrant County Jail Report â {report_date_str}"
+    subject = f"Tarrant County Jail Report — {report_date_str}"
     send_email(subject, html_content)
 
     print("--- Report generation process complete. ---")
