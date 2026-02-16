@@ -19,6 +19,9 @@
 #     high-quality, pixel-perfect PDF version of the report from the HTML.
 # 6.  **Sends Email**: Sends an email containing the HTML report in the body
 #     and the generated PDF as an attachment.
+# 7.  **Sends Kit Broadcast**: Creates and sends a Kit (ConvertKit) broadcast
+#     to all subscribers via the Kit API v4, using the generated HTML report
+#     as the email content.
 #
 # This script is designed to be run via a GitHub Actions workflow on a
 # daily schedule.
@@ -28,11 +31,12 @@
 import os
 import re
 import ssl
+import json
 import smtplib
 import asyncio
 import html
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import Counter
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -54,6 +58,12 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+
+# --- Kit (ConvertKit) API Configuration ---
+KIT_API_KEY = os.getenv("KIT_API_KEY")
+KIT_API_SECRET = os.getenv("KIT_API_SECRET")
+KIT_API_BASE_URL = "https://api.kit.com/v4"
+KIT_FROM_EMAIL = "Report@dailyjailreports.com"
 
 # --- File Paths ---
 HTML_TEMPLATE_PATH = "daily_report_template.html"
@@ -239,7 +249,7 @@ def analyze_stats(records: list[dict]) -> dict:
 
     # 1. Top single charge
     first_charges = [rec.get("description", "").split(",")[0].strip().upper() for rec in records if rec.get("description")]
-    top_charge = Counter(first_charges).most_common(1)[0][0].title() if first_charges else "N/A"
+    top_charge = Counter(first_charges).most_common(1)[0][0] if first_charges else "N/A"
 
     # 2. Charge Mix
     categorized_charges = [(rec.get("description") or "").upper() for rec in records]
@@ -442,6 +452,149 @@ def send_email(subject: str, html_body: str):
         # Don't raise, just log the error.
 
 # ---------------------------------------------------------------------------
+# Kit (ConvertKit) Broadcast Sending
+# ---------------------------------------------------------------------------
+
+def send_kit_broadcast(subject: str, html_body: str, report_date_str: str):
+    """
+    Creates and sends a Kit (ConvertKit) broadcast to ALL subscribers
+    via the Kit API v4.
+
+    Workflow:
+      1. Create a broadcast with content, subject, and send_at set to now
+         (which schedules it for immediate sending).
+      2. The broadcast is sent to all subscribers (no tag/segment filter).
+
+    Args:
+        subject:          The email subject line.
+        html_body:        The full HTML content for the email body.
+        report_date_str:  The report date string for logging purposes.
+    """
+    if not KIT_API_KEY:
+        print("WARNING: KIT_API_KEY environment variable not set. Skipping Kit broadcast.")
+        return
+
+    print("--- Kit Broadcast: Starting ---")
+    print(f"Kit Broadcast: Subject = {subject}")
+    print(f"Kit Broadcast: From = {KIT_FROM_EMAIL}")
+    print(f"Kit Broadcast: Target = ALL subscribers")
+
+    # -----------------------------------------------------------------------
+    # Step 1: Fetch email templates to find the best one for raw HTML
+    # -----------------------------------------------------------------------
+    email_template_id = None
+    try:
+        print("Kit Broadcast: Fetching email templates...")
+        templates_url = f"{KIT_API_BASE_URL}/email_templates"
+        headers = {
+            "X-Kit-Api-Key": KIT_API_KEY,
+            "Content-Type": "application/json",
+        }
+        resp = requests.get(templates_url, headers=headers, timeout=30)
+        resp.raise_for_status()
+        templates_data = resp.json()
+        templates = templates_data.get("email_templates", [])
+
+        # Prefer "Text Only" template (minimal wrapper, lets our HTML shine)
+        # Fall back to "Custom HTML Template" if available, then default
+        for t in templates:
+            if t.get("name", "").lower() == "text only":
+                email_template_id = t["id"]
+                print(f"Kit Broadcast: Using template '{t['name']}' (ID: {email_template_id})")
+                break
+        if email_template_id is None:
+            for t in templates:
+                if "html" in t.get("name", "").lower():
+                    email_template_id = t["id"]
+                    print(f"Kit Broadcast: Using template '{t['name']}' (ID: {email_template_id})")
+                    break
+        if email_template_id is None and templates:
+            email_template_id = templates[0]["id"]
+            print(f"Kit Broadcast: Falling back to template '{templates[0]['name']}' (ID: {email_template_id})")
+        if email_template_id is None:
+            print("Kit Broadcast: No templates found. Will use account default.")
+
+    except Exception as e:
+        print(f"Kit Broadcast: WARNING - Could not fetch templates ({e}). Will use account default.")
+
+    # -----------------------------------------------------------------------
+    # Step 2: Create the broadcast with send_at = now (immediate send)
+    # -----------------------------------------------------------------------
+    try:
+        print("Kit Broadcast: Creating broadcast...")
+        create_url = f"{KIT_API_BASE_URL}/broadcasts"
+        headers = {
+            "X-Kit-Api-Key": KIT_API_KEY,
+            "Content-Type": "application/json",
+        }
+
+        # Use current UTC time for immediate sending
+        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+        # Build the broadcast payload
+        payload = {
+            "content": html_body,
+            "subject": subject,
+            "description": f"Tarrant County Jail Report — {report_date_str}",
+            "public": False,
+            "published_at": now_utc,
+            "send_at": now_utc,
+            "preview_text": f"Tarrant County Jail Report for {report_date_str}",
+            "email_address": KIT_FROM_EMAIL,
+            "subscriber_filter": [
+                {
+                    "all": [
+                        {
+                            "type": "all_subscribers"
+                        }
+                    ]
+                }
+            ],
+        }
+
+        # Add template ID if we found one
+        if email_template_id is not None:
+            payload["email_template_id"] = email_template_id
+
+        resp = requests.post(create_url, headers=headers, json=payload, timeout=60)
+
+        # Log the response for debugging
+        print(f"Kit Broadcast: API response status = {resp.status_code}")
+
+        if resp.status_code == 201:
+            broadcast_data = resp.json()
+            broadcast_id = broadcast_data.get("broadcast", {}).get("id", "unknown")
+            send_at = broadcast_data.get("broadcast", {}).get("send_at", "unknown")
+            print(f"Kit Broadcast: SUCCESS! Broadcast created (ID: {broadcast_id})")
+            print(f"Kit Broadcast: Scheduled send_at = {send_at}")
+            print("Kit Broadcast: The broadcast will be sent to all subscribers.")
+        elif resp.status_code == 401:
+            print("Kit Broadcast: ERROR - Authentication failed (401). Check your KIT_API_KEY.")
+            print(f"Kit Broadcast: Response body: {resp.text}")
+        elif resp.status_code == 403:
+            print("Kit Broadcast: ERROR - Forbidden (403). Your Kit plan may not support this feature.")
+            print(f"Kit Broadcast: Response body: {resp.text}")
+        elif resp.status_code == 422:
+            print("Kit Broadcast: ERROR - Validation error (422). Check the payload.")
+            print(f"Kit Broadcast: Response body: {resp.text}")
+        else:
+            print(f"Kit Broadcast: ERROR - Unexpected status code {resp.status_code}")
+            print(f"Kit Broadcast: Response body: {resp.text}")
+
+    except requests.exceptions.Timeout:
+        print("Kit Broadcast: ERROR - Request timed out. The Kit API may be slow or unreachable.")
+    except requests.exceptions.ConnectionError:
+        print("Kit Broadcast: ERROR - Could not connect to the Kit API. Check network connectivity.")
+    except requests.exceptions.RequestException as e:
+        print(f"Kit Broadcast: ERROR - Request failed: {e}")
+    except json.JSONDecodeError as e:
+        print(f"Kit Broadcast: ERROR - Could not parse API response as JSON: {e}")
+    except Exception as e:
+        print(f"Kit Broadcast: ERROR - Unexpected error: {e}")
+
+    print("--- Kit Broadcast: Finished ---")
+
+# ---------------------------------------------------------------------------
 # Main Execution
 # ---------------------------------------------------------------------------
 
@@ -473,9 +626,12 @@ async def main():
     # 5. Generate PDF report
     await generate_pdf_from_html(html_content)
 
-    # 6. Send the email
+    # 6. Send the email to the owner (existing behavior)
     subject = f"Tarrant County Jail Report — {report_date_str}"
     send_email(subject, html_content)
+
+    # 7. Send Kit broadcast to ALL subscribers (NEW)
+    send_kit_broadcast(subject, html_content, report_date_str)
 
     print("--- Report generation process complete. ---")
 
