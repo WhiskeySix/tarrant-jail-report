@@ -1,5 +1,6 @@
 
 
+
 """
 # ---------------------------------------------------------------------------
 # Tarrant County Daily Jail Report
@@ -470,8 +471,8 @@ def send_kit_broadcast(subject: str, html_body: str, report_date_str: str):
         html_body:        The full HTML content for the email body.
         report_date_str:  The report date string for logging purposes.
     """
-    if not KIT_API_SECRET:
-        print("WARNING: KIT_API_SECRET environment variable not set. Skipping Kit broadcast.")
+    if not KIT_API_KEY:
+        print("WARNING: KIT_API_KEY environment variable not set. Skipping Kit broadcast.")
         return
 
     print("--- Kit Broadcast: Starting ---")
@@ -487,7 +488,7 @@ def send_kit_broadcast(subject: str, html_body: str, report_date_str: str):
         print("Kit Broadcast: Fetching email templates...")
         templates_url = f"{KIT_API_BASE_URL}/email_templates"
         headers = {
-            "Authorization": f"Bearer {KIT_API_SECRET}",
+            "Authorization": f"Bearer {KIT_API_KEY}",
             "Content-Type": "application/json",
         }
         resp = requests.get(templates_url, headers=headers, timeout=30)
@@ -524,7 +525,7 @@ def send_kit_broadcast(subject: str, html_body: str, report_date_str: str):
         print("Kit Broadcast: Creating broadcast...")
         create_url = f"{KIT_API_BASE_URL}/broadcasts"
         headers = {
-            "Authorization": f"Bearer {KIT_API_SECRET}",
+            "Authorization": f"Bearer {KIT_API_KEY}",
             "Content-Type": "application/json",
         }
 
@@ -569,7 +570,7 @@ def send_kit_broadcast(subject: str, html_body: str, report_date_str: str):
             print(f"Kit Broadcast: Scheduled send_at = {send_at}")
             print("Kit Broadcast: The broadcast will be sent to all subscribers.")
         elif resp.status_code == 401:
-            print("Kit Broadcast: ERROR - Authentication failed (401). Check your KIT_API_SECRET.")
+            print("Kit Broadcast: ERROR - Authentication failed (401). Check your KIT_API_KEY.")
             print(f"Kit Broadcast: Response body: {resp.text}")
         elif resp.status_code == 403:
             print("Kit Broadcast: ERROR - Forbidden (403). Your Kit plan may not support this feature.")
