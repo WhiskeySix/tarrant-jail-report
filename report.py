@@ -38,6 +38,8 @@ from email.mime.application import MIMEApplication
 
 import pdfplumber
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 from pyppeteer import launch
 
 # ---------------------------------------------------------------------------
@@ -103,15 +105,42 @@ EMBEDDED_BOOKING_RE = re.compile(r"(\d{2}-\d{7})")
 # ---------------------------------------------------------------------------
 
 def fetch_pdf(url: str) -> bytes:
-    """Fetches the PDF content from a given URL with retries."""
+    """Fetches the PDF content from a given URL with retries.
+
+    Uses a requests.Session with urllib3 Retry adapter for robust
+    connection-level retries (handles DNS failures, connection resets,
+    and transient HTTP errors).  An application-level retry loop on top
+    catches higher-level request exceptions such as read timeouts.
+    """
     import time as _time
     print(f"Fetching PDF from {url}...")
+
+    # Build a resilient session with automatic retries at the urllib3 layer
+    session = requests.Session()
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=2,                          # 0s, 2s, 4s between retries
+        status_forcelist=[500, 502, 503, 504],
+        allowed_methods=["GET"],
+    )
+    adapter = HTTPAdapter(max_retries=retry_strategy)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": "application/pdf,*/*",
     }
+
+    # Application-level retry loop (covers read-timeouts and other errors
+    # that urllib3 retries do not handle)
     for attempt in range(3):
         try:
-            r = requests.get(url, timeout=120, headers=headers)
+            r = session.get(url, timeout=(15, 120), headers=headers)
             r.raise_for_status()
             print("Successfully fetched PDF.")
             return r.content
@@ -237,8 +266,8 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
                     continue
                 if pending and not current and ln: pending = None
                 if current: apply_content_line(current, ln)
-        if current: records.append(finalize_record(current))
     
+    if current: records.append(finalize_record(current))
     print(f"Successfully parsed {len(records)} booking records.")
     return report_dt, records
 
@@ -438,23 +467,46 @@ def render_html(data: dict) -> str:
     return template
 
 async def generate_pdf_from_html(html_content: str):
-    """Converts HTML content to a PDF file using Pyppeteer/Chromium."""
+    """Converts HTML content to a PDF file using Pyppeteer/Chromium.
+
+    FIX: pyppeteer 2.0 changed the Page.setContent() signature to only
+    accept (self, html) — the waitUntil options dict is no longer a
+    parameter.  We now call setContent without options and use
+    page.waitFor() to allow rendering to settle before generating the PDF.
+
+    The browser is always closed in a finally block to prevent zombie
+    Chromium processes from lingering (which caused atexit errors and
+    potential hangs in CI).
+    """
     print("Generating PDF report from HTML...")
+    browser = None
     try:
-        browser = await launch(executablePath="/usr/bin/chromium-browser", args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"])
+        chromium_path = os.getenv("CHROMIUM_PATH", "/usr/bin/chromium-browser")
+        browser = await launch(
+            executablePath=chromium_path,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+        )
         page = await browser.newPage()
-        await page.setContent(html_content, {"waitUntil": "networkidle0"})
+        # FIX: setContent in pyppeteer 2.0 only accepts (self, html)
+        await page.setContent(html_content)
+        # Wait for rendering to complete (replaces the old waitUntil option)
+        await page.waitFor(2000)
         await page.pdf({
             "path": PDF_OUTPUT_PATH,
             "format": "Letter",
             "printBackground": True,
             "margin": {"top": "0.5in", "right": "0.5in", "bottom": "0.5in", "left": "0.5in"},
         })
-        await browser.close()
         print(f"PDF report saved to {PDF_OUTPUT_PATH}")
     except Exception as e:
         print(f"ERROR: Failed to generate PDF. {e}")
         # Don't raise, as we still want to try sending the HTML email
+    finally:
+        if browser:
+            try:
+                await browser.close()
+            except Exception:
+                pass
 
 # ---------------------------------------------------------------------------
 # Email Sending
