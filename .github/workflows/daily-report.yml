@@ -2,7 +2,7 @@ name: Daily Jail Report
 
 on:
   schedule:
-    - cron: "30 13 * * *"  # 13:30 UTC = 7:30am CST
+    - cron: "30 13 * * *"  # 13:30 UTC = 7:30 CST
   workflow_dispatch: {}
 
 permissions:
@@ -21,31 +21,45 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install system deps (Chromium)
+      - name: Install Chromium
         run: |
           sudo apt-get update
           sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
-          python -m pip install --upgrade pip
 
-      - name: Install Python deps
-        run: |
-          pip install -r requirements.txt
+          # Set CHROME_PATH for report.py
+          if command -v chromium-browser >/dev/null 2>&1; then
+            echo "CHROME_PATH=/usr/bin/chromium-browser" >> $GITHUB_ENV
+          else
+            echo "CHROME_PATH=/usr/bin/chromium" >> $GITHUB_ENV
+          fi
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
       - name: Run report
         env:
           BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
+          BOOKED_DAY: ${{ secrets.BOOKED_DAY }}
           TO_EMAIL: ${{ secrets.TO_EMAIL }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
-        run: |
-          python report.py
+          CHROME_PATH: ${{ env.CHROME_PATH }}
+        run: python report.py
 
-      - name: Commit report artifacts
+      - name: Commit reports
         run: |
-          git config user.name "dailyjailreports-bot"
-          git config user.email "actions@users.noreply.github.com"
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+
           git add reports/*.html reports/*.pdf || true
-          git commit -m "Daily report: $(date -u +'%Y-%m-%d')" || echo "No changes to commit"
+
+          # Only commit if there are changes
+          if git diff --cached --quiet; then
+            echo "No report changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Daily report: $(date -u +'%Y-%m-%d')"
           git push
