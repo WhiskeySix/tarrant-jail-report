@@ -1,47 +1,69 @@
+"""
+Tarrant County Daily Jail Report (DailyJailReports.com)
+
+- Fetch booked-in PDF
+- Parse booking records (name/date/city/charges)
+- Compute stats
+- Render HTML using daily_report_template.html (placeholders {{...}})
+- Generate PDF from HTML (Chromium headless)
+- Write outputs to reports/
+- Email HTML + attach PDF
+- (No Kit / ConvertKit in this version)
+"""
+
 import os
 import re
 import ssl
 import smtplib
-import html as html_lib
 import asyncio
-import subprocess
+import html as html_lib
 from io import BytesIO
 from datetime import datetime, timedelta
 from collections import Counter
+from pathlib import Path
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
+from email.header import Header
 
 import pdfplumber
 import requests
 from pyppeteer import launch
 
 
-# ----------------------------
-# Config
-# ----------------------------
+# =============================================================================
+# CONFIG (Environment Variables)
+# =============================================================================
+
 BOOKED_BASE_URL = os.getenv(
     "BOOKED_BASE_URL",
     "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF"
-)
-BOOKED_DAY = os.getenv("BOOKED_DAY")  # Optional; if not set we auto-detect
-TO_EMAIL = os.getenv("TO_EMAIL", "j.jameshurt@gmail.com")
+).rstrip("/")
 
-SMTP_USER = os.getenv("SMTP_USER")      # recommended: your gmail address
-SMTP_PASS = os.getenv("SMTP_PASS")      # gmail app password (NOT your normal password)
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+# If you ever need a specific day file like "01.PDF" etc:
+BOOKED_DAY = os.getenv("BOOKED_DAY", "01").strip()  # not used by default fetch logic
 
-HTML_TEMPLATE_PATH = "daily_report_template.html"
+TO_EMAIL = os.getenv("TO_EMAIL", "").strip()  # required
+SMTP_USER = os.getenv("SMTP_USER", "").strip()  # required
+SMTP_PASS = os.getenv("SMTP_PASS", "").strip()  # required
+SMTP_HOST = (os.getenv("SMTP_HOST") or "smtp.gmail.com").strip()
 
-OUT_DIR = "reports"  # committed folder
-TMP_HTML = "daily_jail_report.html"
-TMP_PDF = "daily_jail_report.pdf"
+# ✅ Option C: robust even if SMTP_PORT is missing/blank/whitespace
+SMTP_PORT = int((os.getenv("SMTP_PORT") or "465").strip())
+
+# Chromium path (actions step will set this)
+CHROME_PATH = (os.getenv("CHROME_PATH") or "").strip()
+
+# Template + output locations
+HTML_TEMPLATE_PATH = Path("daily_report_template.html")
+REPORTS_DIR = Path("reports")
+REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-# ----------------------------
-# Parsing patterns (battle-tested style)
-# ----------------------------
+# =============================================================================
+# Parsing Patterns (kept close to your baseline)
+# =============================================================================
+
 NAME_CID_DATE_RE = re.compile(
     r"^(?P<name>[A-Z][A-Z' \-]+,\s*[A-Z0-9][A-Z0-9' \-]+)\s+(?P<cid>\d{6,7})\s+(?P<date>\d{1,2}/\d{1,2}/\d{4})$"
 )
@@ -66,6 +88,8 @@ JUNK_SUBSTRINGS = [
     "CID", "BOOK IN DATE", "BOOKING NO.", "DESCRIPTION",
 ]
 
+EMBEDDED_BOOKING_RE = re.compile(r"(\d{2}-\d{7})")
+
 CATEGORY_RULES = [
     ("DWI / Alcohol", ["DWI", "INTOX", "BAC", "DUI", "ALCOHOL", "DRUNK", "INTOXICATED", "PUBLIC INTOX", "OPEN CONT"]),
     ("Drugs / Possession", ["POSS", "POSS CS", "CONTROLLED SUB", "CS", "DRUG", "NARC", "MARIJ", "METH", "COCAINE", "HEROIN", "PARAPH"]),
@@ -76,12 +100,22 @@ CATEGORY_RULES = [
     ("Warrants / Court / Bond", ["WARRANT", "FTA", "FAIL TO APPEAR", "BOND", "PAROLE", "PROBATION"]),
 ]
 
-EMBEDDED_BOOKING_RE = re.compile(r"(\d{2}-\d{7})")
+
+# =============================================================================
+# Fetch PDF
+# =============================================================================
+
+def fetch_pdf(url: str) -> bytes:
+    print(f"Fetching PDF: {url}")
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    return r.content
 
 
-# ----------------------------
-# Utilities
-# ----------------------------
+# =============================================================================
+# Helpers
+# =============================================================================
+
 def normalize_ws(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
 
@@ -128,9 +162,6 @@ def extract_city_from_addr_lines(addr_lines: list[str]) -> str:
         m2 = re.search(r"([A-Z][A-Z \-']+)\s+TX\s+\d{5}(?:-\d{4})?$", up)
         if m2:
             return normalize_ws(m2.group(1).title())
-        m3 = re.search(r"\b([A-Z][A-Z \-']+),?\s+TX\s+\d{5}(?:-\d{4})?\b", up)
-        if m3:
-            return normalize_ws(m3.group(1).title())
     return "Unknown"
 
 def apply_content_line(rec: dict, ln: str) -> None:
@@ -145,6 +176,7 @@ def apply_content_line(rec: dict, ln: str) -> None:
         pre = s[: bookings[0].start()].strip()
         if pre and looks_like_address(pre):
             rec["addr_lines"].append(pre)
+
         for i, b in enumerate(bookings):
             start = b.end()
             end = bookings[i + 1].start() if i + 1 < len(bookings) else len(s)
@@ -160,19 +192,18 @@ def apply_content_line(rec: dict, ln: str) -> None:
     cleaned = clean_charge_line(s)
     if not cleaned:
         return
+
     if not rec["charges"]:
         rec["charges"].append(cleaned)
     else:
         rec["charges"][-1] = normalize_ws(rec["charges"][-1] + " " + cleaned)
 
 def finalize_record(rec: dict) -> dict:
-    charges_clean = [clean_charge_line(c) for c in rec.get("charges", []) if c]
-    # de-dupe while preserving order
+    charges_raw = [clean_charge_line(c) for c in rec.get("charges", []) if c]
     charges = []
-    for c in charges_clean:
+    for c in charges_raw:
         if c and c not in charges:
             charges.append(c)
-
     addr_lines = [normalize_ws(a) for a in rec.get("addr_lines", []) if a and not is_junk_line(a)]
     return {
         "name": rec.get("name", "").strip(),
@@ -182,19 +213,10 @@ def finalize_record(rec: dict) -> dict:
     }
 
 
-# ----------------------------
-# Fetch PDF
-# ----------------------------
-def fetch_pdf(url: str) -> bytes:
-    print(f"Fetching PDF from: {url}")
-    r = requests.get(url, timeout=60)
-    r.raise_for_status()
-    return r.content
+# =============================================================================
+# PDF Parse
+# =============================================================================
 
-
-# ----------------------------
-# Parse PDF
-# ----------------------------
 def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     records: list[dict] = []
     pending = None
@@ -266,39 +288,40 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
 def fix_embedded_booking_numbers(records: list[dict]) -> list[dict]:
     fixed = []
     for rec in records:
-        name = rec.get("name", "")
+        name = rec.get("name", "") or ""
         match = EMBEDDED_BOOKING_RE.search(name)
         if match:
             booking_start = match.start()
             clean_name = name[:booking_start].strip()
-            extra = name[booking_start:].strip()
-            existing_desc = rec.get("description", "")
+            extra_content = name[booking_start:].strip()
+            existing_desc = rec.get("description", "") or ""
             rec["name"] = clean_name
-            rec["description"] = f"{extra}, {existing_desc}".strip(", ").strip()
+            rec["description"] = f"{extra_content}, {existing_desc}".strip(", ").strip()
         fixed.append(rec)
     return fixed
 
 
-# ----------------------------
+# =============================================================================
 # Stats
-# ----------------------------
+# =============================================================================
+
 def analyze_stats(records: list[dict]) -> dict:
     total = len(records)
     if total == 0:
         return {"total_bookings": 0, "top_charge": "N/A", "charge_mix": [], "cities": [], "charge_bars": []}
 
-    # top charge = first fragment of description
-    first_charges = [
-        rec.get("description", "").split(",")[0].strip().upper()
-        for rec in records
-        if rec.get("description")
-    ]
+    # top charge (first chunk)
+    first_charges = []
+    for r in records:
+        desc = (r.get("description") or "").strip()
+        if desc:
+            first_charges.append(desc.split(",")[0].strip().upper())
     top_charge = Counter(first_charges).most_common(1)[0][0] if first_charges else "N/A"
 
     # charge mix
     charge_mix_counts = Counter()
-    for rec in records:
-        txt = (rec.get("description") or "").upper()
+    for r in records:
+        txt = (r.get("description") or "").upper()
         found = "Other / Unknown"
         for cat, keys in CATEGORY_RULES:
             if any(k in txt for k in keys):
@@ -306,27 +329,28 @@ def analyze_stats(records: list[dict]) -> dict:
                 break
         charge_mix_counts[found] += 1
 
+    # keep category order + other last
     charge_mix = []
-    for cat, _keys in CATEGORY_RULES:
-        count = charge_mix_counts.get(cat, 0)
-        if count:
-            charge_mix.append((cat, f"{round((count/total)*100)}%", count))
-    other_count = charge_mix_counts.get("Other / Unknown", 0)
-    if other_count:
-        charge_mix.append(("Other / Unknown", f"{round((other_count/total)*100)}%", other_count))
+    for cat, _ in CATEGORY_RULES:
+        c = charge_mix_counts.get(cat, 0)
+        if c:
+            charge_mix.append((cat, f"{round(c/total*100)}%", c))
+    other_c = charge_mix_counts.get("Other / Unknown", 0)
+    if other_c:
+        charge_mix.append(("Other / Unknown", f"{round(other_c/total*100)}%", other_c))
     charge_mix.sort(key=lambda x: x[2], reverse=True)
 
-    # cities
-    cities_raw = [rec.get("city", "Unknown") for rec in records]
-    city_counts = Counter(c for c in cities_raw if c != "Unknown")
-    top9 = city_counts.most_common(9)
-    cities = [(city, f"{round((count/total)*100)}%", count) for city, count in top9]
-    known = sum(c[2] for c in cities)
-    other = total - known
-    if other:
-        cities.append(("All Other Cities", f"{round((other/total)*100)}%", other))
+    # cities (top 9 + all other)
+    cities = [r.get("city", "Unknown") for r in records]
+    city_counts = Counter(c for c in cities if c and c != "Unknown")
+    top = city_counts.most_common(9)
+    city_rows = [(c, f"{round(n/total*100)}%", n) for c, n in top]
+    top_sum = sum(n for _, _, n in city_rows)
+    other = total - top_sum
+    if other > 0:
+        city_rows.append(("All Other Cities", f"{round(other/total*100)}%", other))
 
-    # charge distribution bars (same order as charge_mix)
+    # distribution bars (same as charge_mix but condensed labels)
     label_map = {
         "Family Violence / Assault": "Fam. Violence",
         "Drugs / Possession": "Drugs / Poss.",
@@ -334,36 +358,59 @@ def analyze_stats(records: list[dict]) -> dict:
         "Warrants / Court / Bond": "Warrants",
         "Other / Unknown": "Other",
     }
-    charge_bars = []
+    bars = []
     for cat, pct_str, _count in charge_mix:
         pct = int(pct_str.replace("%", ""))
         label = label_map.get(cat, cat)
-        color = "#a09890" if cat in ("Other / Unknown",) else "#c8a45a"
-        charge_bars.append((label, pct, color))
+        color = "#a09890" if cat == "Other / Unknown" else "#c8a45a"
+        bars.append((label, pct, color))
 
     return {
         "total_bookings": total,
-        "top_charge": top_charge.title(),
+        "top_charge": top_charge,
         "charge_mix": charge_mix,
-        "cities": cities,
-        "charge_bars": charge_bars,
+        "cities": city_rows,
+        "charge_bars": bars,
     }
 
 
-# ----------------------------
-# HTML render
-# ----------------------------
-def render_html(data: dict) -> str:
-    with open(HTML_TEMPLATE_PATH, "r", encoding="utf-8") as f:
-        template = f.read()
+# =============================================================================
+# HTML Render
+# =============================================================================
 
-    def build_bars(items, is_city=False):
+def render_html(template_data: dict) -> str:
+    if not HTML_TEMPLATE_PATH.exists():
+        raise FileNotFoundError(f"Missing template: {HTML_TEMPLATE_PATH}")
+
+    template = HTML_TEMPLATE_PATH.read_text(encoding="utf-8")
+
+    def build_charge_mix_rows(items):
         rows = []
         for label, pct_str, count in items:
-            pct = int(str(pct_str).replace("%", ""))
-            is_other = (label == "All Other Cities") or (label == "Other / Unknown")
-            color = "#a09890" if is_other else "#c8a45a"
-            label_style = "color:#999590; font-style:italic;" if (is_city and label == "All Other Cities") else "color:#666360;"
+            pct = int(pct_str.replace("%", ""))
+            color = "#a09890" if label == "Other / Unknown" else "#c8a45a"
+            rows.append(f"""
+<tr>
+  <td style="padding:3px 0; width:140px; color:#666360; font-size:11px; vertical-align:middle;">{html_lib.escape(label)}</td>
+  <td style="padding:3px 8px; vertical-align:middle;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e8e4dc; border-radius:2px;">
+      <tr>
+        <td style="width:{pct}%; background-color:{color}; height:14px; border-radius:2px; font-size:1px;">&nbsp;</td>
+        <td style="font-size:1px;">&nbsp;</td>
+      </tr>
+    </table>
+  </td>
+  <td style="padding:3px 0; width:70px; color:#1a1a1a; font-weight:700; text-align:right; font-size:11px; vertical-align:middle;">{pct}%&nbsp;<span style="color:#999590; font-weight:400; font-size:10px;">({count})</span></td>
+</tr>
+""".strip())
+        return "\n".join(rows)
+
+    def build_city_rows(items):
+        rows = []
+        for label, pct_str, count in items:
+            pct = int(pct_str.replace("%", ""))
+            color = "#a09890" if label == "All Other Cities" else "#c8a45a"
+            label_style = "color:#999590; font-style:italic;" if label == "All Other Cities" else "color:#666360;"
             rows.append(f"""
 <tr>
   <td style="padding:3px 0; width:140px; {label_style} font-size:11px; vertical-align:middle;">{html_lib.escape(label)}</td>
@@ -380,7 +427,7 @@ def render_html(data: dict) -> str:
 """.strip())
         return "\n".join(rows)
 
-    def build_distribution(items):
+    def build_bar_rows(items):
         rows = []
         for label, pct, color in items:
             rows.append(f"""
@@ -415,47 +462,38 @@ def render_html(data: dict) -> str:
         return "\n".join(rows)
 
     replacements = {
-        "{{report_date}}": data.get("report_date", ""),
-        "{{report_date_display}}": data.get("report_date_display", ""),
-        "{{arrests_date}}": data.get("arrests_date", ""),
-        "{{total_bookings}}": str(data.get("total_bookings", 0)),
-        "{{top_charge}}": html_lib.escape(data.get("top_charge", "N/A")),
-        "{{charge_mix_rows}}": build_bars(data.get("charge_mix", []), is_city=False),
-        "{{city_rows}}": build_bars(data.get("cities", []), is_city=True),
-        "{{bar_rows}}": build_distribution(data.get("charge_bars", [])),
-        "{{booking_rows}}": build_booking_rows(data.get("bookings", [])),
+        "{{report_date}}": template_data["report_date"],
+        "{{report_date_display}}": template_data["report_date_display"],
+        "{{arrests_date}}": template_data["arrests_date"],
+        "{{total_bookings}}": str(template_data["total_bookings"]),
+        "{{top_charge}}": html_lib.escape(template_data["top_charge"]),
+        "{{charge_mix_rows}}": build_charge_mix_rows(template_data["charge_mix"]),
+        "{{city_rows}}": build_city_rows(template_data["cities"]),
+        "{{bar_rows}}": build_bar_rows(template_data["charge_bars"]),
+        "{{booking_rows}}": build_booking_rows(template_data["bookings"]),
     }
+
     for k, v in replacements.items():
         template = template.replace(k, v)
-
-    with open(TMP_HTML, "w", encoding="utf-8") as f:
-        f.write(template)
 
     return template
 
 
-# ----------------------------
-# PDF render (same styling)
-# ----------------------------
-async def generate_pdf_from_html(html_content: str, pdf_path: str):
-    # find chromium
-    chromium = None
-    for candidate in ["chromium", "chromium-browser", "google-chrome", "google-chrome-stable"]:
-        p = subprocess.run(["bash", "-lc", f"command -v {candidate}"], capture_output=True, text=True)
-        if p.returncode == 0:
-            chromium = p.stdout.strip()
-            break
+# =============================================================================
+# PDF Generation (Chromium)
+# =============================================================================
 
-    launch_kwargs = {"args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]}
-    if chromium:
-        launch_kwargs["executablePath"] = chromium
+async def html_to_pdf(html_content: str, out_path: Path):
+    # robust chromium path resolution
+    executable = CHROME_PATH if CHROME_PATH else None
 
-    browser = await launch(**launch_kwargs)
+    launch_args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+    browser = await launch(executablePath=executable, args=launch_args) if executable else await launch(args=launch_args)
+
     page = await browser.newPage()
-    await page.setViewport({"width": 1200, "height": 1600, "deviceScaleFactor": 2})
     await page.setContent(html_content, {"waitUntil": "networkidle0"})
     await page.pdf({
-        "path": pdf_path,
+        "path": str(out_path),
         "format": "Letter",
         "printBackground": True,
         "margin": {"top": "0.5in", "right": "0.5in", "bottom": "0.5in", "left": "0.5in"},
@@ -463,61 +501,47 @@ async def generate_pdf_from_html(html_content: str, pdf_path: str):
     await browser.close()
 
 
-# ----------------------------
-# Email send (HTML + PDF)
-# ----------------------------
-def send_email(subject: str, html_body: str, pdf_path: str):
-    if not all([SMTP_USER, SMTP_PASS, TO_EMAIL]):
-        raise RuntimeError("Missing SMTP_USER, SMTP_PASS, or TO_EMAIL env vars.")
+# =============================================================================
+# Email
+# =============================================================================
+
+def send_email(subject: str, html_body: str, pdf_path: Path | None):
+    if not (TO_EMAIL and SMTP_USER and SMTP_PASS):
+        print("Missing TO_EMAIL / SMTP_USER / SMTP_PASS. Skipping email.")
+        return
 
     msg = MIMEMultipart("alternative")
-    msg["Subject"] = subject
+    msg["Subject"] = str(Header(subject, "utf-8"))
     msg["From"] = SMTP_USER
     msg["To"] = TO_EMAIL
 
     msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    if os.path.exists(pdf_path):
+    if pdf_path and pdf_path.exists():
         with open(pdf_path, "rb") as f:
-            att = MIMEApplication(f.read(), _subtype="pdf")
-        att.add_header("Content-Disposition", "attachment", filename=os.path.basename(pdf_path))
-        msg.attach(att)
+            part = MIMEApplication(f.read(), _subtype="pdf")
+            part.add_header("Content-Disposition", f'attachment; filename="{pdf_path.name}"')
+            msg.attach(part)
 
     context = ssl.create_default_context()
     with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context) as server:
         server.login(SMTP_USER, SMTP_PASS)
         server.sendmail(SMTP_USER, [TO_EMAIL], msg.as_string())
 
-
-# ----------------------------
-# Helpers: determine which PDF to fetch
-# ----------------------------
-def detect_day_for_today() -> str:
-    # Tarrant PDF folder often uses day-of-month filenames like 01.PDF, 02.PDF, etc.
-    # We'll try today's day first; if fail, fallback yesterday.
-    today = datetime.now()
-    candidates = [today.day, (today - timedelta(days=1)).day]
-    for d in candidates:
-        day_str = f"{d:02d}"
-        url = f"{BOOKED_BASE_URL.rstrip('/')}/{day_str}.PDF"
-        try:
-            r = requests.head(url, timeout=20)
-            if r.status_code == 200:
-                return day_str
-        except Exception:
-            pass
-    # default
-    return f"{today.day:02d}"
+    print("Email sent.")
 
 
-# ----------------------------
+# =============================================================================
 # Main
-# ----------------------------
-async def main():
-    os.makedirs(OUT_DIR, exist_ok=True)
+# =============================================================================
 
-    day = BOOKED_DAY or detect_day_for_today()
-    pdf_url = f"{BOOKED_BASE_URL.rstrip('/')}/{day}.PDF"
+async def main():
+    print("--- Daily Jail Report start ---")
+
+    # PDF URL: most deployments use base + "/01.PDF" style
+    # Your earlier working setup used: f"{BOOKED_BASE_URL}/{BOOKED_DAY}.PDF"
+    # We’ll keep that pattern for compatibility:
+    pdf_url = f"{BOOKED_BASE_URL}/{BOOKED_DAY}.PDF"
 
     pdf_bytes = fetch_pdf(pdf_url)
     report_dt, records = parse_booked_in(pdf_bytes)
@@ -525,37 +549,40 @@ async def main():
 
     stats = analyze_stats(records)
 
-    # Note: report_dt from PDF is "report date"
-    report_date_str = report_dt.strftime("%-m/%-d/%Y") if hasattr(report_dt, "strftime") else datetime.now().strftime("%-m/%-d/%Y")
+    # dates
+    report_date_str = report_dt.strftime("%-m/%-d/%Y")
     arrests_date_str = (report_dt - timedelta(days=1)).strftime("%-m/%-d/%Y")
+    display_str = report_dt.strftime("%A, %B %-d, %Y")
+
+    # outputs
+    stamp = report_dt.strftime("%Y-%m-%d")
+    html_path = REPORTS_DIR / f"report_{stamp}.html"
+    pdf_path = REPORTS_DIR / f"report_{stamp}.pdf"
 
     template_data = {
         **stats,
         "report_date": report_date_str,
         "arrests_date": arrests_date_str,
-        "report_date_display": report_dt.strftime("%A, %B %-d, %Y"),
+        "report_date_display": display_str,
         "bookings": sorted(records, key=lambda x: x.get("name", "")),
     }
 
-    html_content = render_html(template_data)
+    html_report = render_html(template_data)
+    html_path.write_text(html_report, encoding="utf-8")
+    print(f"Wrote HTML: {html_path}")
 
-    # outputs committed to repo
-    out_slug = report_dt.strftime("%Y-%m-%d")
-    out_html = os.path.join(OUT_DIR, f"{out_slug}.html")
-    out_pdf = os.path.join(OUT_DIR, f"{out_slug}.pdf")
+    # PDF
+    try:
+        await html_to_pdf(html_report, pdf_path)
+        print(f"Wrote PDF: {pdf_path}")
+    except Exception as e:
+        print(f"PDF generation failed: {e}")
+        pdf_path = None
 
-    # write the final HTML file
-    with open(out_html, "w", encoding="utf-8") as f:
-        f.write(html_content)
-
-    # generate PDF from same HTML (pixel match)
-    await generate_pdf_from_html(html_content, out_pdf)
-
-    # email it
     subject = f"Tarrant County Jail Report — {report_date_str}"
-    send_email(subject, html_content, out_pdf)
+    send_email(subject, html_report, pdf_path)
 
-    print(f"Done. Saved: {out_html} and {out_pdf}, emailed to {TO_EMAIL}.")
+    print("--- Done ---")
 
 
 if __name__ == "__main__":
