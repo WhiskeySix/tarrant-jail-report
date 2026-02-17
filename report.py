@@ -505,31 +505,52 @@ async def html_to_pdf(html_content: str, out_path: Path):
 # Email
 # =============================================================================
 
-def send_email(subject: str, html_body: str, pdf_path: Path | None):
-    if not (TO_EMAIL and SMTP_USER and SMTP_PASS):
-        print("Missing TO_EMAIL / SMTP_USER / SMTP_PASS. Skipping email.")
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
+import os, ssl, smtplib
+
+def send_email(subject: str, html_body: str):
+    """Sends an email with HTML body and a PDF attachment (if it exists)."""
+    if not all([TO_EMAIL, SMTP_USER, SMTP_PASS]):
+        print("WARNING: Missing TO_EMAIL/SMTP_USER/SMTP_PASS. Skipping email.")
         return
 
-    msg = MIMEMultipart("alternative")
-    msg["Subject"] = str(Header(subject, "utf-8"))
+    print(f"Preparing to send email to {TO_EMAIL}...")
+
+    # ✅ OUTER must be 'mixed' when attachments are included
+    msg = MIMEMultipart("mixed")
+    msg["Subject"] = subject
     msg["From"] = SMTP_USER
     msg["To"] = TO_EMAIL
 
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
+    # ✅ Nest HTML in an 'alternative' part
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText("Your email client does not support HTML.", "plain", "utf-8"))
+    alt.attach(MIMEText(html_body, "html", "utf-8"))
+    msg.attach(alt)
 
-    if pdf_path and pdf_path.exists():
-        with open(pdf_path, "rb") as f:
-            part = MIMEApplication(f.read(), _subtype="pdf")
-            part.add_header("Content-Disposition", f'attachment; filename="{pdf_path.name}"')
-            msg.attach(part)
+    # Attach PDF (if created)
+    if os.path.exists(PDF_OUTPUT_PATH):
+        with open(PDF_OUTPUT_PATH, "rb") as f:
+            pdf_attachment = MIMEApplication(f.read(), _subtype="pdf")
+        pdf_attachment.add_header(
+            "Content-Disposition",
+            f'attachment; filename="{os.path.basename(PDF_OUTPUT_PATH)}"'
+        )
+        msg.attach(pdf_attachment)
+        print(f"Attached PDF to email: {PDF_OUTPUT_PATH}")
+    else:
+        print(f"WARNING: PDF not found at {PDF_OUTPUT_PATH}. Email will be HTML-only.")
 
-    context = ssl.create_default_context()
-    with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context) as server:
-        server.login(SMTP_USER, SMTP_PASS)
-        server.sendmail(SMTP_USER, [TO_EMAIL], msg.as_string())
-
-    print("Email sent.")
-
+    try:
+        context = ssl.create_default_context()
+        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context) as server:
+            server.login(SMTP_USER, SMTP_PASS)
+            server.sendmail(SMTP_USER, [TO_EMAIL], msg.as_string())
+        print("Email sent successfully.")
+    except Exception as e:
+        print(f"FATAL: Failed to send email. Error: {e}")
 
 # =============================================================================
 # Main
