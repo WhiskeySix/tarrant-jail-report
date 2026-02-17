@@ -36,7 +36,7 @@ jobs:
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           KIT_API_KEY: ${{ secrets.KIT_API_KEY }}
-          KIT_TAG_ID: ${{ secrets.KIT_TAG_ID }}
+          KIT_API_SECRET: ${{ secrets.KIT_API_SECRET }}
         run: |
           python report.py
       
