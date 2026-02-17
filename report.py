@@ -336,13 +336,18 @@ def analyze_stats(records: list[dict]) -> dict:
     charge_counts = Counter(categorized)
     top_charge = charge_counts.most_common(1)[0] if charge_counts else ("N/A", 0)
 
-    # Charge mix (top 5 categories)
-    charge_mix = [{"category": cat, "count": cnt} for cat, cnt in charge_counts.most_common(5)]
+    # Charge mix — ALL categories (sorted by count descending)
+    charge_mix = [{"category": cat, "count": cnt} for cat, cnt in charge_counts.most_common()]
 
-    # City breakdown (top 5 cities)
+    # City breakdown — top 9 cities + "All Other Cities" aggregate
     cities = [rec.get("city", "Unknown") for rec in records]
     city_counts = Counter(cities)
-    city_breakdown = [{"city": city, "count": cnt} for city, cnt in city_counts.most_common(5)]
+    top_9 = city_counts.most_common(9)
+    top_9_total = sum(cnt for _, cnt in top_9)
+    other_total = total - top_9_total
+    city_breakdown = [{"city": city, "count": cnt} for city, cnt in top_9]
+    if other_total > 0:
+        city_breakdown.append({"city": "All Other Cities", "count": other_total})
 
     return {
         "total_bookings": total,
@@ -400,21 +405,25 @@ def _build_bar_bg_td(remaining_px: int, height_px: int = 16) -> str:
 def build_charge_mix_bars(charge_mix: list[dict]) -> str:
     """
     Builds email-safe HTML bar chart rows for the Charge Mix section.
-    FIX (Issue 1): Uses pixel-width <td> cells instead of nested percentage tables.
-    Bars are scaled relative to the largest count (top item = full width).
-    FIX (Issue 3): Enhanced spacing and visual weight.
+    v3: Shows ALL categories with gold (#c8a45a) bars proportional to the
+    largest value. Each row shows: Label | [gold bar][beige remainder] | XX% (count)
+    Percentage is bold, count is in lighter color with parentheses.
     """
     if not charge_mix:
         return ""
 
+    total_charges = sum(item["count"] for item in charge_mix)
     max_count = max(item["count"] for item in charge_mix) if charge_mix else 1
+    if max_count <= 0:
+        max_count = 1
     rows_html = ""
 
     for item in charge_mix:
         category = html.escape(item["category"])
         count = item["count"]
+        pct = round((count / total_charges) * 100) if total_charges > 0 else 0
         # Scale relative to max — top item gets full bar width
-        ratio = count / max_count if max_count > 0 else 0
+        ratio = count / max_count
         bar_px = max(int(ratio * BAR_MAX_PX), 6)  # minimum 6px for visibility
 
         bar_td = _build_bar_td(BAR_COLOR_PRIMARY, bar_px)
@@ -425,84 +434,104 @@ def build_charge_mix_bars(charge_mix: list[dict]) -> str:
             f'  <td style="padding:7px 12px 7px 0; font-family:{FONT_STACK}; font-size:12px; '
             f'color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
             f'align="left">{category}</td>\n'
-            f'  <td style="padding:7px 0; vertical-align:middle;" width="55%">\n'
+            f'  <td style="padding:7px 0; vertical-align:middle;" width="50%">\n'
             f'    <table role="presentation" width="{BAR_MAX_PX}" cellpadding="0" cellspacing="0" border="0">'
             f'<tr>{bar_td}{bg_td}</tr></table>\n'
             f'  </td>\n'
             f'  <td style="padding:7px 0 7px 12px; font-family:{FONT_STACK}; font-size:12px; '
-            f'font-weight:700; color:{COUNT_COLOR}; white-space:nowrap; vertical-align:middle;" '
-            f'align="right">{count}</td>\n'
+            f'white-space:nowrap; vertical-align:middle;" '
+            f'align="right"><strong style="color:{LABEL_COLOR};">{pct}%</strong> '
+            f'<span style="color:{COUNT_COLOR};">({count})</span></td>\n'
             '</tr>\n'
         )
 
     return rows_html
 
 
-def build_city_bars(city_breakdown: list[dict]) -> str:
+def build_city_bars(city_breakdown: list[dict], total_bookings: int) -> str:
     """
     Builds email-safe HTML bar chart rows for the Arrests by City section.
-    FIX (Issue 1): Uses pixel-width <td> cells instead of nested percentage tables.
-    Bars are scaled relative to the largest count (top city = full width).
-    FIX (Issue 3): Enhanced spacing and visual weight.
+    v3: Shows top 9 cities + "All Other Cities" with dark (#2c2c2c) bars
+    proportional to the largest value. Each row shows:
+    Label | [dark bar][beige remainder] | XX% (count)
+    Percentage is bold, count is in lighter color with parentheses.
+    "All Other Cities" row is in italics.
+    Percentages are of TOTAL bookings.
     """
     if not city_breakdown:
         return ""
 
     max_count = max(item["count"] for item in city_breakdown) if city_breakdown else 1
+    if max_count <= 0:
+        max_count = 1
+    if total_bookings <= 0:
+        total_bookings = 1
     rows_html = ""
 
     for item in city_breakdown:
-        city = html.escape(item["city"])
+        city_name = html.escape(item["city"])
         count = item["count"]
-        ratio = count / max_count if max_count > 0 else 0
+        pct = round((count / total_bookings) * 100) if total_bookings > 0 else 0
+        ratio = count / max_count
         bar_px = max(int(ratio * BAR_MAX_PX), 6)
 
         bar_td = _build_bar_td(BAR_COLOR_ALT, bar_px)
         bg_td = _build_bar_bg_td(BAR_MAX_PX - bar_px)
 
+        # "All Other Cities" row in italics
+        is_other = (item["city"] == "All Other Cities")
+        label_open = '<em>' if is_other else ''
+        label_close = '</em>' if is_other else ''
+
         rows_html += (
             '<tr>\n'
             f'  <td style="padding:7px 12px 7px 0; font-family:{FONT_STACK}; font-size:12px; '
             f'color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
-            f'align="left">{city}</td>\n'
-            f'  <td style="padding:7px 0; vertical-align:middle;" width="55%">\n'
+            f'align="left">{label_open}{city_name}{label_close}</td>\n'
+            f'  <td style="padding:7px 0; vertical-align:middle;" width="50%">\n'
             f'    <table role="presentation" width="{BAR_MAX_PX}" cellpadding="0" cellspacing="0" border="0">'
             f'<tr>{bar_td}{bg_td}</tr></table>\n'
             f'  </td>\n'
             f'  <td style="padding:7px 0 7px 12px; font-family:{FONT_STACK}; font-size:12px; '
-            f'font-weight:700; color:{COUNT_COLOR}; white-space:nowrap; vertical-align:middle;" '
-            f'align="right">{count}</td>\n'
+            f'white-space:nowrap; vertical-align:middle;" '
+            f'align="right">{label_open}<strong style="color:{LABEL_COLOR};">{pct}%</strong> '
+            f'<span style="color:{COUNT_COLOR};">({count})</span>{label_close}</td>\n'
             '</tr>\n'
         )
 
     return rows_html
 
 
+# Abbreviated labels for Charge Distribution section
+CATEGORY_ABBREVIATIONS = {
+    "Family Violence / Assault": "Fam. Violence",
+    "DWI / Alcohol": "DWI / Alcohol",
+    "Drugs / Possession": "Drugs / Poss.",
+    "Theft / Fraud": "Theft / Fraud",
+    "Weapons": "Weapons",
+    "Evading / Resisting": "Evading",
+    "Warrants / Court / Bond": "Warrants",
+    "Other": "Other",
+}
+
+
 def build_charge_distribution_bars(charge_mix: list[dict], total_charges: int) -> str:
     """
     Builds email-safe HTML bar chart rows for the Charge Distribution section.
-    Shows each category as a percentage of total charges.
-
-    FIX (Issue 1): Bars are now scaled RELATIVE TO THE LARGEST PERCENTAGE
-    (so the top item is always near full width, and others are proportional).
-    Previously used the raw percentage (e.g. 29%) as the bar width, making
-    all bars tiny. Now the largest percentage maps to full bar width.
-
-    FIX (Issue 1): Uses pixel-width <td> cells instead of nested percentage tables
-    for reliable rendering in Gmail, Kit/ConvertKit, and other email clients.
-
-    FIX (Issue 3): Enhanced spacing and visual weight.
+    v3: Shows ALL categories with abbreviated labels. Bars alternate between
+    gold (#c8a45a) and dark (#2c2c2c) colors. Percentage only (no count).
+    Bars are proportional to the largest percentage.
     """
     if not charge_mix or total_charges == 0:
         return ""
 
-    # Alternate colors for visual distinction
-    colors = ["#c8a45a", "#2c2c2c", "#888580", "#b8860b", "#6b6760"]
+    # Alternate between gold and dark
+    alt_colors = [BAR_COLOR_PRIMARY, BAR_COLOR_ALT]
 
     # Pre-calculate percentages
     items_with_pct = []
     for item in charge_mix:
-        pct = round((item["count"] / total_charges) * 100, 1) if total_charges > 0 else 0
+        pct = round((item["count"] / total_charges) * 100) if total_charges > 0 else 0
         items_with_pct.append((item, pct))
 
     # Find the maximum percentage for relative scaling
@@ -513,11 +542,13 @@ def build_charge_distribution_bars(charge_mix: list[dict], total_charges: int) -
     rows_html = ""
 
     for idx, (item, pct_of_total) in enumerate(items_with_pct):
-        category = html.escape(item["category"])
-        color = colors[idx % len(colors)]
+        full_name = item["category"]
+        abbrev = CATEGORY_ABBREVIATIONS.get(full_name, full_name)
+        category = html.escape(abbrev)
+        color = alt_colors[idx % 2]
 
         # Scale relative to the largest percentage — top item gets full bar width
-        ratio = pct_of_total / max_pct
+        ratio = pct_of_total / max_pct if max_pct > 0 else 0
         bar_px = max(int(ratio * BAR_MAX_PX), 6)  # minimum 6px for visibility
 
         bar_td = _build_bar_td(color, bar_px)
@@ -533,7 +564,7 @@ def build_charge_distribution_bars(charge_mix: list[dict], total_charges: int) -
             f'<tr>{bar_td}{bg_td}</tr></table>\n'
             f'  </td>\n'
             f'  <td style="padding:7px 0 7px 12px; font-family:{FONT_STACK}; font-size:12px; '
-            f'font-weight:700; color:{COUNT_COLOR}; white-space:nowrap; vertical-align:middle;" '
+            f'font-weight:700; color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
             f'align="right">{pct_of_total}%</td>\n'
             '</tr>\n'
         )
@@ -596,7 +627,7 @@ def render_html(data: dict) -> str:
 
     # Build email-safe HTML for bar charts and booking table
     charge_mix_html = build_charge_mix_bars(data["charge_mix"])
-    city_html = build_city_bars(data["city_breakdown"])
+    city_html = build_city_bars(data["city_breakdown"], data["total_bookings"])
 
     # Calculate total charges for distribution percentages
     total_charges = sum(item["count"] for item in data["charge_mix"])
@@ -692,6 +723,25 @@ def send_email(subject: str, html_body: str):
 # Kit (ConvertKit) Broadcast Sending - V3 API
 # ---------------------------------------------------------------------------
 
+def _strip_html_wrapper_for_kit(html_body: str) -> str:
+    """
+    Strips the <!DOCTYPE html>, <html>, <head>, and <body> wrapper tags from
+    the HTML content so that Kit (ConvertKit) doesn't render them as visible
+    text in the broadcast email. Returns only the inner body content.
+    """
+    import re as _re
+    # Extract content between <body...> and </body>
+    body_match = _re.search(r'<body[^>]*>(.*)</body>', html_body, _re.DOTALL | _re.IGNORECASE)
+    if body_match:
+        return body_match.group(1).strip()
+    # Fallback: strip DOCTYPE, html, head tags manually
+    stripped = _re.sub(r'<!DOCTYPE[^>]*>', '', html_body, flags=_re.IGNORECASE).strip()
+    stripped = _re.sub(r'</?html[^>]*>', '', stripped, flags=_re.IGNORECASE).strip()
+    stripped = _re.sub(r'<head[^>]*>.*?</head>', '', stripped, flags=_re.IGNORECASE | _re.DOTALL).strip()
+    stripped = _re.sub(r'</?body[^>]*>', '', stripped, flags=_re.IGNORECASE).strip()
+    return stripped
+
+
 def send_kit_broadcast(subject: str, html_body: str, report_date_str: str):
     """
     Creates and sends a Kit (ConvertKit) broadcast to ALL subscribers
@@ -733,10 +783,14 @@ def send_kit_broadcast(subject: str, html_body: str, report_date_str: str):
 
         # Build the broadcast payload
         # Note: v3 API requires api_secret in the body, not as a header
+        # Strip DOCTYPE/html/head wrapper to prevent Kit from rendering
+        # "DOCTYPE html>" as visible text at the top of the broadcast
+        kit_content = _strip_html_wrapper_for_kit(html_body)
+
         payload = {
             "api_secret": KIT_API_SECRET,
             "subject": subject,
-            "content": html_body,
+            "content": kit_content,
             "description": f"Tarrant County Jail Report — {report_date_str}",
             "email_address": KIT_FROM_EMAIL,
             "send_at": now_utc,
