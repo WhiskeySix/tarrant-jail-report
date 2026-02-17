@@ -288,6 +288,164 @@ def analyze_stats(records: list[dict]) -> dict:
     }
 
 # ---------------------------------------------------------------------------
+# Email-Safe HTML Builders
+# ---------------------------------------------------------------------------
+
+# Color palette for bar charts
+BAR_COLOR_PRIMARY = "#c8a45a"
+BAR_COLOR_ALT = "#2c2c2c"
+BAR_BG = "#f0ede6"
+LABEL_COLOR = "#2c2c2c"
+COUNT_COLOR = "#888580"
+FONT_STACK = "Arial, Helvetica, sans-serif"
+
+
+def build_charge_mix_bars(charge_mix: list[dict]) -> str:
+    """
+    Builds email-safe HTML bar chart rows for the Charge Mix section.
+    Uses simple single-level table rows with colored <td> cells for bars.
+    """
+    if not charge_mix:
+        return ""
+
+    max_count = max(item["count"] for item in charge_mix) if charge_mix else 1
+    rows_html = ""
+
+    for item in charge_mix:
+        category = html.escape(item["category"])
+        count = item["count"]
+        pct = int((count / max_count) * 100) if max_count > 0 else 0
+        pct = max(pct, 2)  # minimum bar width for visibility
+        remaining = 100 - pct
+
+        rows_html += (
+            '<tr>\n'
+            f'  <td style="padding:4px 8px 4px 0; font-family:{FONT_STACK}; font-size:11px; color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" align="left">{category}</td>\n'
+            '  <td style="padding:4px 0; vertical-align:middle;" width="60%">\n'
+            f'    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>\n'
+            f'      <td style="background-color:{BAR_COLOR_PRIMARY}; width:{pct}%; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_COLOR_PRIMARY}">&nbsp;</td>\n'
+            f'      <td style="background-color:{BAR_BG}; width:{remaining}%; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_BG}">&nbsp;</td>\n'
+            '    </tr></table>\n'
+            '  </td>\n'
+            f'  <td style="padding:4px 0 4px 8px; font-family:{FONT_STACK}; font-size:11px; font-weight:700; color:{COUNT_COLOR}; white-space:nowrap; vertical-align:middle;" align="right">{count}</td>\n'
+            '</tr>\n'
+        )
+
+    return rows_html
+
+
+def build_city_bars(city_breakdown: list[dict]) -> str:
+    """
+    Builds email-safe HTML bar chart rows for the Arrests by City section.
+    Uses simple single-level table rows with colored <td> cells for bars.
+    """
+    if not city_breakdown:
+        return ""
+
+    max_count = max(item["count"] for item in city_breakdown) if city_breakdown else 1
+    rows_html = ""
+
+    for item in city_breakdown:
+        city = html.escape(item["city"])
+        count = item["count"]
+        pct = int((count / max_count) * 100) if max_count > 0 else 0
+        pct = max(pct, 2)
+        remaining = 100 - pct
+
+        rows_html += (
+            '<tr>\n'
+            f'  <td style="padding:4px 8px 4px 0; font-family:{FONT_STACK}; font-size:11px; color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" align="left">{city}</td>\n'
+            '  <td style="padding:4px 0; vertical-align:middle;" width="60%">\n'
+            f'    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>\n'
+            f'      <td style="background-color:{BAR_COLOR_ALT}; width:{pct}%; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_COLOR_ALT}">&nbsp;</td>\n'
+            f'      <td style="background-color:{BAR_BG}; width:{remaining}%; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_BG}">&nbsp;</td>\n'
+            '    </tr></table>\n'
+            '  </td>\n'
+            f'  <td style="padding:4px 0 4px 8px; font-family:{FONT_STACK}; font-size:11px; font-weight:700; color:{COUNT_COLOR}; white-space:nowrap; vertical-align:middle;" align="right">{count}</td>\n'
+            '</tr>\n'
+        )
+
+    return rows_html
+
+
+def build_charge_distribution_bars(charge_mix: list[dict], total_charges: int) -> str:
+    """
+    Builds email-safe HTML bar chart rows for the Charge Distribution section.
+    Shows each category as a percentage of total charges.
+    Uses simple single-level table rows with colored <td> cells for bars.
+    """
+    if not charge_mix or total_charges == 0:
+        return ""
+
+    # Alternate colors for visual distinction
+    colors = ["#c8a45a", "#2c2c2c", "#888580", "#b8860b", "#6b6760"]
+    rows_html = ""
+
+    for idx, item in enumerate(charge_mix):
+        category = html.escape(item["category"])
+        count = item["count"]
+        pct_of_total = round((count / total_charges) * 100, 1) if total_charges > 0 else 0
+        bar_width = int(pct_of_total)
+        bar_width = max(bar_width, 2)  # minimum bar width for visibility
+        remaining = 100 - bar_width
+        color = colors[idx % len(colors)]
+
+        rows_html += (
+            '<tr>\n'
+            f'  <td style="padding:4px 8px 4px 0; font-family:{FONT_STACK}; font-size:11px; color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" align="left">{category}</td>\n'
+            '  <td style="padding:4px 0; vertical-align:middle;" width="50%">\n'
+            f'    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>\n'
+            f'      <td style="background-color:{color}; width:{bar_width}%; height:14px; font-size:1px; line-height:1px;" bgcolor="{color}">&nbsp;</td>\n'
+            f'      <td style="background-color:{BAR_BG}; width:{remaining}%; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_BG}">&nbsp;</td>\n'
+            '    </tr></table>\n'
+            '  </td>\n'
+            f'  <td style="padding:4px 0 4px 8px; font-family:{FONT_STACK}; font-size:11px; font-weight:700; color:{COUNT_COLOR}; white-space:nowrap; vertical-align:middle;" align="right">{pct_of_total}%</td>\n'
+            '</tr>\n'
+        )
+
+    return rows_html
+
+
+def build_bookings_table(bookings: list[dict]) -> str:
+    """
+    Builds email-safe HTML table rows for the Full Booking List.
+    Uses simple inline-styled <tr>/<td> elements with alternating row colors.
+    All styles are inline. No CSS classes.
+    """
+    if not bookings:
+        return ""
+
+    rows_html = ""
+    for idx, booking in enumerate(bookings):
+        row_num = idx + 1
+        name = html.escape(booking.get("name", ""))
+        date = html.escape(booking.get("book_in_date", ""))
+        charges = html.escape(booking.get("description", ""))
+        city = html.escape(booking.get("city", ""))
+
+        # Alternating row background
+        bg = "#ffffff" if row_num % 2 == 1 else "#f9f8f6"
+
+        # Common cell style
+        cell_style = (
+            f"padding:8px 10px; font-family:{FONT_STACK}; font-size:11px; "
+            f"color:#2c2c2c; border-bottom:1px solid #e8e4dc; vertical-align:top;"
+        )
+
+        rows_html += (
+            f'<tr style="background-color:{bg};" bgcolor="{bg}">\n'
+            f'  <td style="{cell_style}" align="left">{row_num}</td>\n'
+            f'  <td style="{cell_style} font-weight:700;" align="left">{name}</td>\n'
+            f'  <td style="{cell_style} white-space:nowrap;" align="left">{date}</td>\n'
+            f'  <td style="{cell_style}" align="left">{charges}</td>\n'
+            f'  <td style="{cell_style} white-space:nowrap;" align="left">{city}</td>\n'
+            '</tr>\n'
+        )
+
+    return rows_html
+
+
+# ---------------------------------------------------------------------------
 # HTML Report Generation
 # ---------------------------------------------------------------------------
 
@@ -300,27 +458,15 @@ def render_html(data: dict) -> str:
         print(f"FATAL: Template file not found at {HTML_TEMPLATE_PATH}")
         raise
 
-    # Build charge mix HTML
-    charge_mix_html = ""
-    for item in data["charge_mix"]:
-        charge_mix_html += f'<li><strong>{html.escape(item["category"])}</strong>: {item["count"]}</li>\n'
+    # Build email-safe HTML for bar charts and booking table
+    charge_mix_html = build_charge_mix_bars(data["charge_mix"])
+    city_html = build_city_bars(data["city_breakdown"])
 
-    # Build city breakdown HTML
-    city_breakdown_html = ""
-    for item in data["city_breakdown"]:
-        city_breakdown_html += f'<li><strong>{html.escape(item["city"])}</strong>: {item["count"]}</li>\n'
+    # Calculate total charges for distribution percentages
+    total_charges = sum(item["count"] for item in data["charge_mix"])
+    bar_html = build_charge_distribution_bars(data["charge_mix"], total_charges)
 
-    # Build bookings table HTML
-    bookings_html = ""
-    for booking in data["bookings"]:
-        bookings_html += f"""
-        <tr>
-            <td>{html.escape(booking.get("name", ""))}</td>
-            <td>{html.escape(booking.get("book_in_date", ""))}</td>
-            <td>{html.escape(booking.get("city", ""))}</td>
-            <td>{html.escape(booking.get("description", ""))}</td>
-        </tr>
-        """
+    bookings_html = build_bookings_table(data["bookings"])
 
     # Replace placeholders
     html_output = template.replace("{{report_date}}", data["report_date"])
@@ -329,9 +475,10 @@ def render_html(data: dict) -> str:
     html_output = html_output.replace("{{total_bookings}}", str(data["total_bookings"]))
     html_output = html_output.replace("{{top_charge}}", html.escape(data["top_charge"]))
     html_output = html_output.replace("{{top_charge_count}}", str(data["top_charge_count"]))
-    html_output = html_output.replace("{{charge_mix}}", charge_mix_html)
-    html_output = html_output.replace("{{city_breakdown}}", city_breakdown_html)
-    html_output = html_output.replace("{{bookings}}", bookings_html)
+    html_output = html_output.replace("{{charge_mix_rows}}", charge_mix_html)
+    html_output = html_output.replace("{{city_rows}}", city_html)
+    html_output = html_output.replace("{{bar_rows}}", bar_html)
+    html_output = html_output.replace("{{booking_rows}}", bookings_html)
 
     # Save the HTML output
     with open(HTML_OUTPUT_PATH, "w", encoding="utf-8") as f:
