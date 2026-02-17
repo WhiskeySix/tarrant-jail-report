@@ -20,11 +20,14 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install dependencies
+      - name: Install Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser
+      
+      - name: Install Python dependencies
         run: |
           pip install pdfplumber requests pyppeteer
-          # Install Chromium for pyppeteer
-          python -m pyppeteer install
       
       - name: Run report generation
         env:
@@ -37,6 +40,8 @@ jobs:
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           KIT_API_KEY: ${{ secrets.KIT_API_KEY }}
           KIT_API_SECRET: ${{ secrets.KIT_API_SECRET }}
+          PYPPETEER_CHROMIUM_REVISION: ''
+          CHROMIUM_PATH: /usr/bin/chromium-browser
         run: |
           python report.py
       
