@@ -27,29 +27,54 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # ✅ Ensures Chromium exists for PDF creation
       - name: Install pyppeteer Chromium
         run: python -c "from pyppeteer.chromium_downloader import download_chromium; download_chromium()"
+
+      - name: Sanity check secrets are present (not values)
+        env:
+          BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
+          BOOKED_DAY: ${{ secrets.BOOKED_DAY }}
+          TO_EMAIL: ${{ secrets.TO_EMAIL }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+        run: |
+          python - << 'PY'
+          import os
+          def ok(name):
+              v = os.getenv(name, "")
+              return "✅" if (v and v.strip()) else "❌"
+          for k in ["BOOKED_BASE_URL","BOOKED_DAY","TO_EMAIL","SMTP_USER","SMTP_PASS","SMTP_PORT"]:
+              print(f"{ok(k)} {k}")
+          PY
 
       - name: Run report
         env:
           BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
           BOOKED_DAY: ${{ secrets.BOOKED_DAY }}
-
           TO_EMAIL: ${{ secrets.TO_EMAIL }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
-
-          # Optional secrets (safe to omit)
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          # IMPORTANT: do NOT pass SMTP_HOST unless you actually created that secret.
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
         run: |
           python report.py
+          echo "----- output directory listing -----"
+          ls -la output || true
+
+      - name: Upload output artifacts (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-report-output
+          path: output/
 
       - name: Commit output artifacts
         run: |
+          git status
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add output/*.html output/*.pdf || true
+          git status
           git commit -m "Daily report artifacts" || echo "No changes to commit"
           git push || echo "Nothing to push"
