@@ -158,6 +158,12 @@ def extract_city_from_addr_lines(addr_lines: list[str]) -> str:
     return "Unknown"
 
 def apply_content_line(rec: dict, ln: str) -> None:
+    """
+    Processes a content line and appends it to the appropriate field of the record.
+    FIX (Issue 2): Before processing, check if the line starts with a booking number
+    pattern that should NOT be appended to the name. Also handles inline booking
+    numbers correctly.
+    """
     rec.setdefault("addr_lines", [])
     rec.setdefault("charges", [])
     s = normalize_ws(ln)
@@ -184,14 +190,73 @@ def apply_content_line(rec: dict, ln: str) -> None:
     if not rec["charges"]: rec["charges"].append(cleaned)
     else: rec["charges"][-1] = normalize_ws(rec["charges"][-1] + " " + cleaned)
 
+
+def _split_name_with_embedded_booking(name_raw: str) -> tuple:
+    """
+    FIX (Issue 2): Checks if a name field contains an embedded booking number
+    pattern (XX-XXXXXXX) and subsequent charge text. If found, splits the name
+    at that point.
+
+    Returns:
+        (clean_name, extra_charges_list)
+        - clean_name: the actual name (everything before the booking number)
+        - extra_charges_list: list of charge strings extracted from after the booking number(s)
+    """
+    if not name_raw:
+        return (name_raw, [])
+
+    m = BOOKING_RE.search(name_raw)
+    if not m:
+        return (name_raw.strip(), [])
+
+    # Everything before the booking number is the real name
+    clean_name = name_raw[:m.start()].strip()
+
+    # Everything from the booking number onward may contain charges
+    remainder = name_raw[m.start():]
+    extra_charges = []
+    bookings = list(BOOKING_RE.finditer(remainder))
+    for i, b in enumerate(bookings):
+        start = b.end()
+        end = bookings[i + 1].start() if i + 1 < len(bookings) else len(remainder)
+        chunk = remainder[start:end].strip(" -\t")
+        cleaned = clean_charge_line(chunk)
+        if cleaned:
+            extra_charges.append(cleaned)
+
+    return (clean_name, extra_charges)
+
+
 def finalize_record(rec: dict) -> dict:
-    charges = [c for i, c in enumerate([clean_charge_line(c) for c in rec.get("charges", []) if c]) if c not in rec.get("charges", [])[:i]]
+    """
+    Finalizes a parsed record, cleaning up charges and extracting city info.
+    FIX (Issue 2): Post-processes the name field to detect and split out any
+    embedded booking numbers and charge text that were incorrectly appended.
+    """
+    # --- FIX (Issue 2): Split name if it contains embedded booking number ---
+    raw_name = rec.get("name", "").strip()
+    clean_name, extra_charges = _split_name_with_embedded_booking(raw_name)
+
+    charges = rec.get("charges", [])
+    # Prepend any charges extracted from the name field
+    if extra_charges:
+        charges = extra_charges + charges
+
+    # Deduplicate and clean charges
+    seen = set()
+    unique_charges = []
+    for c in charges:
+        cleaned = clean_charge_line(c)
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            unique_charges.append(cleaned)
+
     addr_lines = [normalize_ws(a) for a in rec.get("addr_lines", []) if a and not is_junk_line(a)]
     return {
-        "name": rec.get("name", "").strip(),
+        "name": clean_name,
         "book_in_date": rec.get("book_in_date", "").strip(),
         "city": extract_city_from_addr_lines(addr_lines),
-        "description": ", ".join(charges),
+        "description": ", ".join(unique_charges),
     }
 
 def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
@@ -288,7 +353,7 @@ def analyze_stats(records: list[dict]) -> dict:
     }
 
 # ---------------------------------------------------------------------------
-# Email-Safe HTML Builders
+# Email-Safe HTML Builders (v2 — Fixed bar rendering & design polish)
 # ---------------------------------------------------------------------------
 
 # Color palette for bar charts
@@ -299,11 +364,45 @@ LABEL_COLOR = "#2c2c2c"
 COUNT_COLOR = "#888580"
 FONT_STACK = "Arial, Helvetica, sans-serif"
 
+# Maximum pixel width for bars (the colored portion).
+# This is the full-width reference; bars scale relative to this.
+BAR_MAX_PX = 280
+
+
+def _build_bar_td(color: str, width_px: int, height_px: int = 16) -> str:
+    """
+    FIX (Issue 1 & 3): Builds a single <td> bar cell using a fixed pixel width
+    for the colored portion, with the background color on the parent cell.
+    This avoids nested tables and percentage-width issues in email clients.
+
+    The bar is rendered as a single <td> with explicit width in pixels,
+    background color, and a non-breaking space for content.
+    """
+    return (
+        f'<td style="width:{width_px}px; min-width:{width_px}px; '
+        f'background-color:{color}; height:{height_px}px; '
+        f'font-size:1px; line-height:1px;" '
+        f'bgcolor="{color}" width="{width_px}">&nbsp;</td>'
+    )
+
+
+def _build_bar_bg_td(remaining_px: int, height_px: int = 16) -> str:
+    """Builds the background (unfilled) portion of the bar."""
+    if remaining_px <= 0:
+        return ""
+    return (
+        f'<td style="background-color:{BAR_BG}; height:{height_px}px; '
+        f'font-size:1px; line-height:1px;" '
+        f'bgcolor="{BAR_BG}">&nbsp;</td>'
+    )
+
 
 def build_charge_mix_bars(charge_mix: list[dict]) -> str:
     """
     Builds email-safe HTML bar chart rows for the Charge Mix section.
-    Uses simple single-level table rows with colored <td> cells for bars.
+    FIX (Issue 1): Uses pixel-width <td> cells instead of nested percentage tables.
+    Bars are scaled relative to the largest count (top item = full width).
+    FIX (Issue 3): Enhanced spacing and visual weight.
     """
     if not charge_mix:
         return ""
@@ -314,20 +413,25 @@ def build_charge_mix_bars(charge_mix: list[dict]) -> str:
     for item in charge_mix:
         category = html.escape(item["category"])
         count = item["count"]
-        pct = int((count / max_count) * 100) if max_count > 0 else 0
-        pct = max(pct, 2)  # minimum bar width for visibility
-        remaining = 100 - pct
+        # Scale relative to max — top item gets full bar width
+        ratio = count / max_count if max_count > 0 else 0
+        bar_px = max(int(ratio * BAR_MAX_PX), 6)  # minimum 6px for visibility
+
+        bar_td = _build_bar_td(BAR_COLOR_PRIMARY, bar_px)
+        bg_td = _build_bar_bg_td(BAR_MAX_PX - bar_px)
 
         rows_html += (
             '<tr>\n'
-            f'  <td style="padding:4px 8px 4px 0; font-family:{FONT_STACK}; font-size:11px; color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" align="left">{category}</td>\n'
-            '  <td style="padding:4px 0; vertical-align:middle;" width="60%">\n'
-            f'    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>\n'
-            f'      <td style="background-color:{BAR_COLOR_PRIMARY}; width:{pct}%; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_COLOR_PRIMARY}">&nbsp;</td>\n'
-            f'      <td style="background-color:{BAR_BG}; width:{remaining}%; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_BG}">&nbsp;</td>\n'
-            '    </tr></table>\n'
-            '  </td>\n'
-            f'  <td style="padding:4px 0 4px 8px; font-family:{FONT_STACK}; font-size:11px; font-weight:700; color:{COUNT_COLOR}; white-space:nowrap; vertical-align:middle;" align="right">{count}</td>\n'
+            f'  <td style="padding:7px 12px 7px 0; font-family:{FONT_STACK}; font-size:12px; '
+            f'color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
+            f'align="left">{category}</td>\n'
+            f'  <td style="padding:7px 0; vertical-align:middle;" width="55%">\n'
+            f'    <table role="presentation" width="{BAR_MAX_PX}" cellpadding="0" cellspacing="0" border="0">'
+            f'<tr>{bar_td}{bg_td}</tr></table>\n'
+            f'  </td>\n'
+            f'  <td style="padding:7px 0 7px 12px; font-family:{FONT_STACK}; font-size:12px; '
+            f'font-weight:700; color:{COUNT_COLOR}; white-space:nowrap; vertical-align:middle;" '
+            f'align="right">{count}</td>\n'
             '</tr>\n'
         )
 
@@ -337,7 +441,9 @@ def build_charge_mix_bars(charge_mix: list[dict]) -> str:
 def build_city_bars(city_breakdown: list[dict]) -> str:
     """
     Builds email-safe HTML bar chart rows for the Arrests by City section.
-    Uses simple single-level table rows with colored <td> cells for bars.
+    FIX (Issue 1): Uses pixel-width <td> cells instead of nested percentage tables.
+    Bars are scaled relative to the largest count (top city = full width).
+    FIX (Issue 3): Enhanced spacing and visual weight.
     """
     if not city_breakdown:
         return ""
@@ -348,20 +454,24 @@ def build_city_bars(city_breakdown: list[dict]) -> str:
     for item in city_breakdown:
         city = html.escape(item["city"])
         count = item["count"]
-        pct = int((count / max_count) * 100) if max_count > 0 else 0
-        pct = max(pct, 2)
-        remaining = 100 - pct
+        ratio = count / max_count if max_count > 0 else 0
+        bar_px = max(int(ratio * BAR_MAX_PX), 6)
+
+        bar_td = _build_bar_td(BAR_COLOR_ALT, bar_px)
+        bg_td = _build_bar_bg_td(BAR_MAX_PX - bar_px)
 
         rows_html += (
             '<tr>\n'
-            f'  <td style="padding:4px 8px 4px 0; font-family:{FONT_STACK}; font-size:11px; color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" align="left">{city}</td>\n'
-            '  <td style="padding:4px 0; vertical-align:middle;" width="60%">\n'
-            f'    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>\n'
-            f'      <td style="background-color:{BAR_COLOR_ALT}; width:{pct}%; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_COLOR_ALT}">&nbsp;</td>\n'
-            f'      <td style="background-color:{BAR_BG}; width:{remaining}%; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_BG}">&nbsp;</td>\n'
-            '    </tr></table>\n'
-            '  </td>\n'
-            f'  <td style="padding:4px 0 4px 8px; font-family:{FONT_STACK}; font-size:11px; font-weight:700; color:{COUNT_COLOR}; white-space:nowrap; vertical-align:middle;" align="right">{count}</td>\n'
+            f'  <td style="padding:7px 12px 7px 0; font-family:{FONT_STACK}; font-size:12px; '
+            f'color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
+            f'align="left">{city}</td>\n'
+            f'  <td style="padding:7px 0; vertical-align:middle;" width="55%">\n'
+            f'    <table role="presentation" width="{BAR_MAX_PX}" cellpadding="0" cellspacing="0" border="0">'
+            f'<tr>{bar_td}{bg_td}</tr></table>\n'
+            f'  </td>\n'
+            f'  <td style="padding:7px 0 7px 12px; font-family:{FONT_STACK}; font-size:12px; '
+            f'font-weight:700; color:{COUNT_COLOR}; white-space:nowrap; vertical-align:middle;" '
+            f'align="right">{count}</td>\n'
             '</tr>\n'
         )
 
@@ -372,34 +482,59 @@ def build_charge_distribution_bars(charge_mix: list[dict], total_charges: int) -
     """
     Builds email-safe HTML bar chart rows for the Charge Distribution section.
     Shows each category as a percentage of total charges.
-    Uses simple single-level table rows with colored <td> cells for bars.
+
+    FIX (Issue 1): Bars are now scaled RELATIVE TO THE LARGEST PERCENTAGE
+    (so the top item is always near full width, and others are proportional).
+    Previously used the raw percentage (e.g. 29%) as the bar width, making
+    all bars tiny. Now the largest percentage maps to full bar width.
+
+    FIX (Issue 1): Uses pixel-width <td> cells instead of nested percentage tables
+    for reliable rendering in Gmail, Kit/ConvertKit, and other email clients.
+
+    FIX (Issue 3): Enhanced spacing and visual weight.
     """
     if not charge_mix or total_charges == 0:
         return ""
 
     # Alternate colors for visual distinction
     colors = ["#c8a45a", "#2c2c2c", "#888580", "#b8860b", "#6b6760"]
+
+    # Pre-calculate percentages
+    items_with_pct = []
+    for item in charge_mix:
+        pct = round((item["count"] / total_charges) * 100, 1) if total_charges > 0 else 0
+        items_with_pct.append((item, pct))
+
+    # Find the maximum percentage for relative scaling
+    max_pct = max(pct for _, pct in items_with_pct) if items_with_pct else 1
+    if max_pct <= 0:
+        max_pct = 1
+
     rows_html = ""
 
-    for idx, item in enumerate(charge_mix):
+    for idx, (item, pct_of_total) in enumerate(items_with_pct):
         category = html.escape(item["category"])
-        count = item["count"]
-        pct_of_total = round((count / total_charges) * 100, 1) if total_charges > 0 else 0
-        bar_width = int(pct_of_total)
-        bar_width = max(bar_width, 2)  # minimum bar width for visibility
-        remaining = 100 - bar_width
         color = colors[idx % len(colors)]
+
+        # Scale relative to the largest percentage — top item gets full bar width
+        ratio = pct_of_total / max_pct
+        bar_px = max(int(ratio * BAR_MAX_PX), 6)  # minimum 6px for visibility
+
+        bar_td = _build_bar_td(color, bar_px)
+        bg_td = _build_bar_bg_td(BAR_MAX_PX - bar_px)
 
         rows_html += (
             '<tr>\n'
-            f'  <td style="padding:4px 8px 4px 0; font-family:{FONT_STACK}; font-size:11px; color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" align="left">{category}</td>\n'
-            '  <td style="padding:4px 0; vertical-align:middle;" width="50%">\n'
-            f'    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>\n'
-            f'      <td style="background-color:{color}; width:{bar_width}%; height:14px; font-size:1px; line-height:1px;" bgcolor="{color}">&nbsp;</td>\n'
-            f'      <td style="background-color:{BAR_BG}; width:{remaining}%; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_BG}">&nbsp;</td>\n'
-            '    </tr></table>\n'
-            '  </td>\n'
-            f'  <td style="padding:4px 0 4px 8px; font-family:{FONT_STACK}; font-size:11px; font-weight:700; color:{COUNT_COLOR}; white-space:nowrap; vertical-align:middle;" align="right">{pct_of_total}%</td>\n'
+            f'  <td style="padding:7px 12px 7px 0; font-family:{FONT_STACK}; font-size:12px; '
+            f'color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
+            f'align="left">{category}</td>\n'
+            f'  <td style="padding:7px 0; vertical-align:middle;" width="50%">\n'
+            f'    <table role="presentation" width="{BAR_MAX_PX}" cellpadding="0" cellspacing="0" border="0">'
+            f'<tr>{bar_td}{bg_td}</tr></table>\n'
+            f'  </td>\n'
+            f'  <td style="padding:7px 0 7px 12px; font-family:{FONT_STACK}; font-size:12px; '
+            f'font-weight:700; color:{COUNT_COLOR}; white-space:nowrap; vertical-align:middle;" '
+            f'align="right">{pct_of_total}%</td>\n'
             '</tr>\n'
         )
 
@@ -411,6 +546,7 @@ def build_bookings_table(bookings: list[dict]) -> str:
     Builds email-safe HTML table rows for the Full Booking List.
     Uses simple inline-styled <tr>/<td> elements with alternating row colors.
     All styles are inline. No CSS classes.
+    FIX (Issue 3): Clean, consistent column widths and improved padding.
     """
     if not bookings:
         return ""
@@ -426,19 +562,19 @@ def build_bookings_table(bookings: list[dict]) -> str:
         # Alternating row background
         bg = "#ffffff" if row_num % 2 == 1 else "#f9f8f6"
 
-        # Common cell style
-        cell_style = (
-            f"padding:8px 10px; font-family:{FONT_STACK}; font-size:11px; "
+        # Common cell style — consistent padding and font
+        cell_base = (
+            f"padding:9px 10px; font-family:{FONT_STACK}; font-size:11px; "
             f"color:#2c2c2c; border-bottom:1px solid #e8e4dc; vertical-align:top;"
         )
 
         rows_html += (
             f'<tr style="background-color:{bg};" bgcolor="{bg}">\n'
-            f'  <td style="{cell_style}" align="left">{row_num}</td>\n'
-            f'  <td style="{cell_style} font-weight:700;" align="left">{name}</td>\n'
-            f'  <td style="{cell_style} white-space:nowrap;" align="left">{date}</td>\n'
-            f'  <td style="{cell_style}" align="left">{charges}</td>\n'
-            f'  <td style="{cell_style} white-space:nowrap;" align="left">{city}</td>\n'
+            f'  <td style="{cell_base} white-space:nowrap; color:{COUNT_COLOR};" align="center" width="5%">{row_num}</td>\n'
+            f'  <td style="{cell_base} font-weight:700;" align="left" width="22%">{name}</td>\n'
+            f'  <td style="{cell_base} white-space:nowrap;" align="left" width="12%">{date}</td>\n'
+            f'  <td style="{cell_base}" align="left" width="46%">{charges}</td>\n'
+            f'  <td style="{cell_base} white-space:nowrap;" align="left" width="15%">{city}</td>\n'
             '</tr>\n'
         )
 
