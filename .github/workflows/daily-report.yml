@@ -1,4 +1,5 @@
-name: Daily Jail Report
+- name: Install pyppeteer Chromium
+  run: python -c "from pyppeteer.chromium_downloader import download_chromium; download_chromium()"
 
 on:
   schedule:
