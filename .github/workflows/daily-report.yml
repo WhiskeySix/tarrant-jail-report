@@ -1,59 +1,51 @@
-name: Generate Daily Jail Report
+name: Daily Jail Report
 
 on:
-  workflow_dispatch: # Allows manual runs
   schedule:
-    - cron: "15 12 * * *" # 12:15 UTC daily (approx. 7:15 AM Central Time)
+    # Run at 7:15 AM CST (13:15 UTC) every day
+    # CST is UTC-6, so 7:15 AM CST = 13:15 UTC
+    - cron: '15 13 * * *'
+  workflow_dispatch:  # Allow manual trigger
 
 jobs:
   generate-report:
     runs-on: ubuntu-latest
-
+    
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Set up Python 3.11
+      
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
-      - name: Install System Dependencies for Headless Chrome
+          python-version: '3.11'
+      
+      - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser
-
-      - name: Install Python Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run Report Generation Script
+          pip install pdfplumber requests pyppeteer
+          # Install Chromium for pyppeteer
+          python -m pyppeteer install
+      
+      - name: Run report generation
         env:
-          # Email credentials and recipient
+          BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
+          BOOKED_DAY: ${{ secrets.BOOKED_DAY }}
           TO_EMAIL: ${{ secrets.TO_EMAIL }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
-
-          # Optional: Override SMTP server settings if not using Gmail
-          # SMTP_HOST: smtp.example.com
-          # SMTP_PORT: "587"
-
-          # Kit (ConvertKit) API credentials for broadcasting to subscribers
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
           KIT_API_KEY: ${{ secrets.KIT_API_KEY }}
-          KIT_API_SECRET: ${{ secrets.KIT_API_SECRET }}
-
-          # Report configuration (can be left as default)
-          BOOKED_BASE_URL: https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF
-          BOOKED_DAY: "01" # Fetches the PDF for the previous day
+          KIT_TAG_ID: ${{ secrets.KIT_TAG_ID }}
         run: |
           python report.py
-
-      - name: Upload Artifacts (for debugging)
-        if: failure()
+      
+      - name: Upload report artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: jail-report-artifacts
+          name: daily-jail-report-${{ github.run_number }}
           path: |
             daily_jail_report.html
             daily_jail_report.pdf
+          retention-days: 30
