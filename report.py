@@ -483,22 +483,30 @@ def render_html(template_data: dict) -> str:
 # PDF Generation (Chromium)
 # =============================================================================
 
-async def html_to_pdf(html_content: str, out_path: Path):
-    # robust chromium path resolution
-    executable = CHROME_PATH if CHROME_PATH else None
+from pyppeteer import launch
 
-    launch_args = ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-    browser = await launch(executablePath=executable, args=launch_args) if executable else await launch(args=launch_args)
+async def generate_pdf_from_html(html_content: str):
+    """Converts HTML content to a PDF file using Pyppeteer/Chromium."""
+    print("Generating PDF report from HTML...")
+    try:
+        browser = await launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+        )
+        page = await browser.newPage()
+        await page.setContent(html_content, {"waitUntil": "networkidle0"})
 
-    page = await browser.newPage()
-    await page.setContent(html_content, {"waitUntil": "networkidle0"})
-    await page.pdf({
-        "path": str(out_path),
-        "format": "Letter",
-        "printBackground": True,
-        "margin": {"top": "0.5in", "right": "0.5in", "bottom": "0.5in", "left": "0.5in"},
-    })
-    await browser.close()
+        await page.pdf({
+            "path": PDF_OUTPUT_PATH,
+            "format": "Letter",
+            "printBackground": True,
+            "margin": {"top": "0.5in", "right": "0.5in", "bottom": "0.5in", "left": "0.5in"},
+        })
+
+        await browser.close()
+        print(f"PDF report saved to {PDF_OUTPUT_PATH} (exists={os.path.exists(PDF_OUTPUT_PATH)})")
+    except Exception as e:
+        print(f"ERROR: Failed to generate PDF. {e}")
 
 
 # =============================================================================
