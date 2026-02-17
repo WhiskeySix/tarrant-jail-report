@@ -1,10 +1,10 @@
-- name: Install pyppeteer Chromium
-  run: python -c "from pyppeteer.chromium_downloader import download_chromium; download_chromium()"
+name: Daily Jail Report
 
 on:
+  workflow_dispatch:
   schedule:
-    - cron: "30 13 * * *"  # 13:30 UTC = 7:30 CST
-  workflow_dispatch: {}
+    # 7:30 AM CST = 13:30 UTC (CST is UTC-6)
+    - cron: "30 13 * * *"
 
 permissions:
   contents: write
@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -22,45 +22,34 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install Chromium
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser || sudo apt-get install -y chromium
-
-          # Set CHROME_PATH for report.py
-          if command -v chromium-browser >/dev/null 2>&1; then
-            echo "CHROME_PATH=/usr/bin/chromium-browser" >> $GITHUB_ENV
-          else
-            echo "CHROME_PATH=/usr/bin/chromium" >> $GITHUB_ENV
-          fi
-
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # ✅ Ensures Chromium exists for PDF creation
+      - name: Install pyppeteer Chromium
+        run: python -c "from pyppeteer.chromium_downloader import download_chromium; download_chromium()"
 
       - name: Run report
         env:
           BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
           BOOKED_DAY: ${{ secrets.BOOKED_DAY }}
+
           TO_EMAIL: ${{ secrets.TO_EMAIL }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
+
+          # Optional secrets (safe to omit)
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          CHROME_PATH: ${{ env.CHROME_PATH }}
-        run: python report.py
+        run: |
+          python report.py
 
-      - name: Commit reports
+      - name: Commit output artifacts
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-
-          git add reports/*.html reports/*.pdf || true
-
-          # Only commit if there are changes
-          if git diff --cached --quiet; then
-            echo "No report changes to commit."
-            exit 0
-          fi
-
-          git commit -m "Daily report: $(date -u +'%Y-%m-%d')"
-          git push
+          git add output/*.html output/*.pdf || true
+          git commit -m "Daily report artifacts" || echo "No changes to commit"
+          git push || echo "Nothing to push"
