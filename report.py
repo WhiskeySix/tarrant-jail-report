@@ -358,54 +358,24 @@ def analyze_stats(records: list[dict]) -> dict:
     }
 
 # ---------------------------------------------------------------------------
-# Email-Safe HTML Builders (v2 — Fixed bar rendering & design polish)
+# Email-Safe HTML Builders (v4 — Percentage-based bars & refined styling)
 # ---------------------------------------------------------------------------
 
 # Color palette for bar charts
 BAR_COLOR_PRIMARY = "#c8a45a"
 BAR_COLOR_ALT = "#2c2c2c"
-BAR_BG = "#f0ede6"
-LABEL_COLOR = "#2c2c2c"
-COUNT_COLOR = "#888580"
-FONT_STACK = "Arial, Helvetica, sans-serif"
-
-# Maximum pixel width for bars (the colored portion).
-# This is the full-width reference; bars scale relative to this.
-BAR_MAX_PX = 280
-
-
-def _build_bar_td(color: str, width_px: int, height_px: int = 16) -> str:
-    """
-    FIX (Issue 1 & 3): Builds a single <td> bar cell using a fixed pixel width
-    for the colored portion, with the background color on the parent cell.
-    This avoids nested tables and percentage-width issues in email clients.
-
-    The bar is rendered as a single <td> with explicit width in pixels,
-    background color, and a non-breaking space for content.
-    """
-    return (
-        f'<td style="width:{width_px}px; min-width:{width_px}px; '
-        f'background-color:{color}; height:{height_px}px; '
-        f'font-size:1px; line-height:1px;" '
-        f'bgcolor="{color}" width="{width_px}">&nbsp;</td>'
-    )
-
-
-def _build_bar_bg_td(remaining_px: int, height_px: int = 16) -> str:
-    """Builds the background (unfilled) portion of the bar."""
-    if remaining_px <= 0:
-        return ""
-    return (
-        f'<td style="background-color:{BAR_BG}; height:{height_px}px; '
-        f'font-size:1px; line-height:1px;" '
-        f'bgcolor="{BAR_BG}">&nbsp;</td>'
-    )
+BAR_BG = "#e8e4dc"  # Changed from #f0ede6 — warmer beige
+LABEL_COLOR = "#5c5955"  # Changed from #2c2c2c — warm medium gray for labels
+COUNT_COLOR = "#999590"
+LABEL_FONT = "Georgia, 'Times New Roman', Times, serif"  # Serif font for labels
+FONT_STACK = "Arial, Helvetica, sans-serif"  # Keep for non-label elements
 
 
 def build_charge_mix_bars(charge_mix: list[dict]) -> str:
     """
     Builds email-safe HTML bar chart rows for the Charge Mix section.
-    v3: Shows ALL categories with gold (#c8a45a) bars proportional to the
+    v4: Uses percentage-based two-cell bar tables for universal email client support.
+    Shows ALL categories with gold (#c8a45a) bars proportional to the
     largest value. Each row shows: Label | [gold bar][beige remainder] | XX% (count)
     Percentage is bold, count is in lighter color with parentheses.
     """
@@ -422,25 +392,26 @@ def build_charge_mix_bars(charge_mix: list[dict]) -> str:
         category = html.escape(item["category"])
         count = item["count"]
         pct = round((count / total_charges) * 100) if total_charges > 0 else 0
-        # Scale relative to max — top item gets full bar width
+        # Scale relative to max — top item gets 100%, others proportional
         ratio = count / max_count
-        bar_px = max(int(ratio * BAR_MAX_PX), 6)  # minimum 6px for visibility
-
-        bar_td = _build_bar_td(BAR_COLOR_PRIMARY, bar_px)
-        bg_td = _build_bar_bg_td(BAR_MAX_PX - bar_px)
+        bar_pct = max(int(ratio * 100), 2)  # minimum 2% for visibility
+        bg_pct = 100 - bar_pct
 
         rows_html += (
             '<tr>\n'
-            f'  <td style="padding:7px 12px 7px 0; font-family:{FONT_STACK}; font-size:12px; '
+            f'  <td style="padding:10px 10px 10px 0; font-family:{LABEL_FONT}; font-size:13px; '
             f'color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
             f'align="left">{category}</td>\n'
-            f'  <td style="padding:7px 0; vertical-align:middle;" width="50%">\n'
-            f'    <table role="presentation" width="{BAR_MAX_PX}" cellpadding="0" cellspacing="0" border="0">'
-            f'<tr>{bar_td}{bg_td}</tr></table>\n'
+            f'  <td style="padding:10px 0; vertical-align:middle;" width="50%">\n'
+            f'    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">'
+            f'<tr>'
+            f'<td width="{bar_pct}%" style="background-color:{BAR_COLOR_PRIMARY}; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_COLOR_PRIMARY}">&nbsp;</td>'
+            f'<td width="{bg_pct}%" style="background-color:{BAR_BG}; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_BG}">&nbsp;</td>'
+            f'</tr></table>\n'
             f'  </td>\n'
-            f'  <td style="padding:7px 0 7px 12px; font-family:{FONT_STACK}; font-size:12px; '
+            f'  <td style="padding:10px 0 10px 10px; font-family:{LABEL_FONT}; font-size:13px; '
             f'white-space:nowrap; vertical-align:middle;" '
-            f'align="right"><strong style="color:{LABEL_COLOR};">{pct}%</strong> '
+            f'align="right"><strong style="color:#2c2c2c;">{pct}%</strong> '
             f'<span style="color:{COUNT_COLOR};">({count})</span></td>\n'
             '</tr>\n'
         )
@@ -451,7 +422,8 @@ def build_charge_mix_bars(charge_mix: list[dict]) -> str:
 def build_city_bars(city_breakdown: list[dict], total_bookings: int) -> str:
     """
     Builds email-safe HTML bar chart rows for the Arrests by City section.
-    v3: Shows top 9 cities + "All Other Cities" with dark (#2c2c2c) bars
+    v4: Uses percentage-based two-cell bar tables for universal email client support.
+    Shows top 9 cities + "All Other Cities" with dark (#2c2c2c) bars
     proportional to the largest value. Each row shows:
     Label | [dark bar][beige remainder] | XX% (count)
     Percentage is bold, count is in lighter color with parentheses.
@@ -473,10 +445,8 @@ def build_city_bars(city_breakdown: list[dict], total_bookings: int) -> str:
         count = item["count"]
         pct = round((count / total_bookings) * 100) if total_bookings > 0 else 0
         ratio = count / max_count
-        bar_px = max(int(ratio * BAR_MAX_PX), 6)
-
-        bar_td = _build_bar_td(BAR_COLOR_ALT, bar_px)
-        bg_td = _build_bar_bg_td(BAR_MAX_PX - bar_px)
+        bar_pct = max(int(ratio * 100), 2)  # minimum 2% for visibility
+        bg_pct = 100 - bar_pct
 
         # "All Other Cities" row in italics
         is_other = (item["city"] == "All Other Cities")
@@ -485,16 +455,19 @@ def build_city_bars(city_breakdown: list[dict], total_bookings: int) -> str:
 
         rows_html += (
             '<tr>\n'
-            f'  <td style="padding:7px 12px 7px 0; font-family:{FONT_STACK}; font-size:12px; '
+            f'  <td style="padding:10px 10px 10px 0; font-family:{LABEL_FONT}; font-size:13px; '
             f'color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
             f'align="left">{label_open}{city_name}{label_close}</td>\n'
-            f'  <td style="padding:7px 0; vertical-align:middle;" width="50%">\n'
-            f'    <table role="presentation" width="{BAR_MAX_PX}" cellpadding="0" cellspacing="0" border="0">'
-            f'<tr>{bar_td}{bg_td}</tr></table>\n'
+            f'  <td style="padding:10px 0; vertical-align:middle;" width="50%">\n'
+            f'    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">'
+            f'<tr>'
+            f'<td width="{bar_pct}%" style="background-color:{BAR_COLOR_ALT}; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_COLOR_ALT}">&nbsp;</td>'
+            f'<td width="{bg_pct}%" style="background-color:{BAR_BG}; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_BG}">&nbsp;</td>'
+            f'</tr></table>\n'
             f'  </td>\n'
-            f'  <td style="padding:7px 0 7px 12px; font-family:{FONT_STACK}; font-size:12px; '
+            f'  <td style="padding:10px 0 10px 10px; font-family:{LABEL_FONT}; font-size:13px; '
             f'white-space:nowrap; vertical-align:middle;" '
-            f'align="right">{label_open}<strong style="color:{LABEL_COLOR};">{pct}%</strong> '
+            f'align="right">{label_open}<strong style="color:#2c2c2c;">{pct}%</strong> '
             f'<span style="color:{COUNT_COLOR};">({count})</span>{label_close}</td>\n'
             '</tr>\n'
         )
@@ -518,7 +491,8 @@ CATEGORY_ABBREVIATIONS = {
 def build_charge_distribution_bars(charge_mix: list[dict], total_charges: int) -> str:
     """
     Builds email-safe HTML bar chart rows for the Charge Distribution section.
-    v3: Shows ALL categories with abbreviated labels. Bars alternate between
+    v4: Uses percentage-based two-cell bar tables for universal email client support.
+    Shows ALL categories with abbreviated labels. Bars alternate between
     gold (#c8a45a) and dark (#2c2c2c) colors. Percentage only (no count).
     Bars are proportional to the largest percentage.
     """
@@ -547,24 +521,25 @@ def build_charge_distribution_bars(charge_mix: list[dict], total_charges: int) -
         category = html.escape(abbrev)
         color = alt_colors[idx % 2]
 
-        # Scale relative to the largest percentage — top item gets full bar width
+        # Scale relative to the largest percentage — top item gets 100%, others proportional
         ratio = pct_of_total / max_pct if max_pct > 0 else 0
-        bar_px = max(int(ratio * BAR_MAX_PX), 6)  # minimum 6px for visibility
-
-        bar_td = _build_bar_td(color, bar_px)
-        bg_td = _build_bar_bg_td(BAR_MAX_PX - bar_px)
+        bar_pct = max(int(ratio * 100), 2)  # minimum 2% for visibility
+        bg_pct = 100 - bar_pct
 
         rows_html += (
             '<tr>\n'
-            f'  <td style="padding:7px 12px 7px 0; font-family:{FONT_STACK}; font-size:12px; '
+            f'  <td style="padding:10px 10px 10px 0; font-family:{LABEL_FONT}; font-size:13px; '
             f'color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
             f'align="left">{category}</td>\n'
-            f'  <td style="padding:7px 0; vertical-align:middle;" width="50%">\n'
-            f'    <table role="presentation" width="{BAR_MAX_PX}" cellpadding="0" cellspacing="0" border="0">'
-            f'<tr>{bar_td}{bg_td}</tr></table>\n'
+            f'  <td style="padding:10px 0; vertical-align:middle;" width="50%">\n'
+            f'    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">'
+            f'<tr>'
+            f'<td width="{bar_pct}%" style="background-color:{color}; height:14px; font-size:1px; line-height:1px;" bgcolor="{color}">&nbsp;</td>'
+            f'<td width="{bg_pct}%" style="background-color:{BAR_BG}; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_BG}">&nbsp;</td>'
+            f'</tr></table>\n'
             f'  </td>\n'
-            f'  <td style="padding:7px 0 7px 12px; font-family:{FONT_STACK}; font-size:12px; '
-            f'font-weight:700; color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
+            f'  <td style="padding:10px 0 10px 10px; font-family:{LABEL_FONT}; font-size:13px; '
+            f'font-weight:700; color:#2c2c2c; white-space:nowrap; vertical-align:middle;" '
             f'align="right">{pct_of_total}%</td>\n'
             '</tr>\n'
         )
