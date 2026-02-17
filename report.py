@@ -1,6 +1,3 @@
-
-
-
 """
 # ---------------------------------------------------------------------------
 # Tarrant County Daily Jail Report
@@ -21,7 +18,7 @@
 # 6.  **Sends Email**: Sends an email containing the HTML report in the body
 #     and the generated PDF as an attachment.
 # 7.  **Sends Kit Broadcast**: Creates and sends a Kit (ConvertKit) broadcast
-#     to all subscribers via the Kit API v4, using the generated HTML report
+#     to all subscribers via the Kit API v3, using the generated HTML report
 #     as the email content.
 #
 # This script is designed to be run via a GitHub Actions workflow on a
@@ -61,10 +58,9 @@ SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 
 # --- Kit (ConvertKit) API Configuration ---
-KIT_API_KEY = os.getenv("KIT_API_KEY")
 KIT_API_SECRET = os.getenv("KIT_API_SECRET")
-KIT_API_BASE_URL = "https://api.kit.com/v4"
-KIT_FROM_EMAIL = "Report@dailyjailreports.com"
+KIT_API_BASE_URL = "https://api.kit.com/v3"
+KIT_FROM_EMAIL = "report@dailyjailreports.com"
 
 # --- File Paths ---
 HTML_TEMPLATE_PATH = "daily_report_template.html"
@@ -240,170 +236,121 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     return report_dt, records
 
 # ---------------------------------------------------------------------------
-# Data Analysis & Statistics
+# Stats Analysis
 # ---------------------------------------------------------------------------
 
+def categorize_charge(charge_text: str) -> str:
+    """Categorizes a charge based on keywords."""
+    up = charge_text.upper()
+    for cat_name, keywords in CATEGORY_RULES:
+        if any(kw in up for kw in keywords):
+            return cat_name
+    return "Other"
+
 def analyze_stats(records: list[dict]) -> dict:
-    """Analyzes the booking records to generate snapshot statistics."""
-    total_bookings = len(records)
-    if total_bookings == 0: return {"total_bookings": 0}
+    """Analyzes booking records and returns statistics."""
+    total = len(records)
+    if total == 0:
+        return {
+            "total_bookings": 0,
+            "top_charge": "N/A",
+            "top_charge_count": 0,
+            "charge_mix": [],
+            "city_breakdown": [],
+        }
 
-    # 1. Top single charge
-    first_charges = [rec.get("description", "").split(",")[0].strip().upper() for rec in records if rec.get("description")]
-    top_charge = Counter(first_charges).most_common(1)[0][0] if first_charges else "N/A"
+    # Flatten all charges
+    all_charges = []
+    for rec in records:
+        desc = rec.get("description", "")
+        if desc:
+            all_charges.extend([c.strip() for c in desc.split(",") if c.strip()])
 
-    # 2. Charge Mix
-    categorized_charges = [(rec.get("description") or "").upper() for rec in records]
-    charge_mix_counts = Counter()
-    for charge_text in categorized_charges:
-        found_cat = "Other / Unknown"
-        for category, keywords in CATEGORY_RULES:
-            if any(keyword in charge_text for keyword in keywords):
-                found_cat = category
-                break
-        charge_mix_counts[found_cat] += 1
+    # Categorize charges
+    categorized = [categorize_charge(c) for c in all_charges]
+    charge_counts = Counter(categorized)
+    top_charge = charge_counts.most_common(1)[0] if charge_counts else ("N/A", 0)
 
-    charge_mix = []
-    for cat, _ in CATEGORY_RULES:
-        count = charge_mix_counts.get(cat, 0)
-        if count > 0: charge_mix.append((cat, f"{round((count / total_bookings) * 100)}%", count))
-    other_count = charge_mix_counts.get("Other / Unknown", 0)
-    if other_count > 0: charge_mix.append(("Other / Unknown", f"{round((other_count / total_bookings) * 100)}%", other_count))
-    charge_mix.sort(key=lambda x: x[2], reverse=True)
+    # Charge mix (top 5 categories)
+    charge_mix = [{"category": cat, "count": cnt} for cat, cnt in charge_counts.most_common(5)]
 
-    # 3. City Breakdown
+    # City breakdown (top 5 cities)
     cities = [rec.get("city", "Unknown") for rec in records]
-    city_counts = Counter(c for c in cities if c != "Unknown")
-    top_cities_raw = city_counts.most_common(9)
-    top_cities = [(city, f"{round((count / total_bookings) * 100)}%", count) for city, count in top_cities_raw]
-    
-    known_city_total = sum(c[2] for c in top_cities)
-    unknown_count = total_bookings - known_city_total
-    if unknown_count > 0: top_cities.append(("All Other Cities", f"{round((unknown_count / total_bookings) * 100)}%", unknown_count))
+    city_counts = Counter(cities)
+    city_breakdown = [{"city": city, "count": cnt} for city, cnt in city_counts.most_common(5)]
 
-    # 4. Charge Bars for visualization
-    charge_bars = []
-    for cat, pct_str, count in charge_mix:
-        label = {"Family Violence / Assault": "Fam. Violence", "Drugs / Possession": "Drugs / Poss.", "Evading / Resisting": "Evading", "Warrants / Court / Bond": "Warrants", "Other / Unknown": "Other"}.get(cat, cat)
-        color = "#a09890" if cat == "Other / Unknown" else "#c8a45a"
-        charge_bars.append((label, int(pct_str.replace("%", "")), color))
-
-    print("Successfully analyzed statistics.")
     return {
-        "total_bookings": total_bookings,
-        "top_charge": top_charge,
+        "total_bookings": total,
+        "top_charge": top_charge[0],
+        "top_charge_count": top_charge[1],
         "charge_mix": charge_mix,
-        "cities": top_cities,
-        "charge_bars": charge_bars,
+        "city_breakdown": city_breakdown,
     }
 
 # ---------------------------------------------------------------------------
-# HTML & PDF Generation
+# HTML Report Generation
 # ---------------------------------------------------------------------------
 
 def render_html(data: dict) -> str:
-    """Renders the HTML report by populating a template file."""
-    print("Rendering HTML report...")
+    """Renders the HTML report using the template and data."""
     try:
         with open(HTML_TEMPLATE_PATH, "r", encoding="utf-8") as f:
             template = f.read()
     except FileNotFoundError:
-        print(f"FATAL: HTML template not found at {HTML_TEMPLATE_PATH}")
+        print(f"FATAL: Template file not found at {HTML_TEMPLATE_PATH}")
         raise
 
-    # --- Helper functions for building HTML snippets ---
-    def build_charge_mix_bars(items):
-        """Build bar graph rows for Charge Mix section."""
-        rows = []
-        for label, pct_str, count in items:
-            pct = int(pct_str.replace("%", ""))
-            # Use gray color for "Other / Unknown", amber/gold for all others
-            color = "#a09890" if label == "Other / Unknown" else "#c8a45a"
-            rows.append(f'''<tr>
-              <td style="padding:3px 0; width:140px; color:#666360; font-size:11px; vertical-align:middle;">{html.escape(label)}</td>
-              <td style="padding:3px 8px; vertical-align:middle;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e8e4dc; border-radius:2px;">
-                  <tr><td style="width:{pct}%; background-color:{color}; height:14px; border-radius:2px; font-size:1px;">&nbsp;</td><td style="font-size:1px;">&nbsp;</td></tr>
-                </table>
-              </td>
-              <td style="padding:3px 0; width:70px; color:#1a1a1a; font-weight:700; text-align:right; font-size:11px; vertical-align:middle;">{pct}%&nbsp;<span style="color:#999590; font-weight:400; font-size:10px;">({count})</span></td>
-            </tr>''')
-        return "\n".join(rows)
+    # Build charge mix HTML
+    charge_mix_html = ""
+    for item in data["charge_mix"]:
+        charge_mix_html += f'<li><strong>{html.escape(item["category"])}</strong>: {item["count"]}</li>\n'
 
-    def build_city_bars(items):
-        """Build bar graph rows for Arrests by City section."""
-        rows = []
-        for label, pct_str, count in items:
-            pct = int(pct_str.replace("%", ""))
-            # Use gray color for "All Other Cities", amber/gold for specific cities
-            color = "#a09890" if label == "All Other Cities" else "#c8a45a"
-            label_style = "color:#999590; font-style:italic;" if label == "All Other Cities" else "color:#666360;"
-            rows.append(f'''<tr>
-              <td style="padding:3px 0; width:140px; {label_style} font-size:11px; vertical-align:middle;">{html.escape(label)}</td>
-              <td style="padding:3px 8px; vertical-align:middle;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e8e4dc; border-radius:2px;">
-                  <tr><td style="width:{pct}%; background-color:{color}; height:14px; border-radius:2px; font-size:1px;">&nbsp;</td><td style="font-size:1px;">&nbsp;</td></tr>
-                </table>
-              </td>
-              <td style="padding:3px 0; width:70px; color:#1a1a1a; font-weight:700; text-align:right; font-size:11px; vertical-align:middle;">{pct}%&nbsp;<span style="color:#999590; font-weight:400; font-size:10px;">({count})</span></td>
-            </tr>''')
-        return "\n".join(rows)
+    # Build city breakdown HTML
+    city_breakdown_html = ""
+    for item in data["city_breakdown"]:
+        city_breakdown_html += f'<li><strong>{html.escape(item["city"])}</strong>: {item["count"]}</li>\n'
 
-    def build_bar_rows(items):
-        """Build bar graph rows for Charge Distribution section."""
-        rows = []
-        for label, pct, color in items:
-            rows.append(f'''<tr>
-              <td style="padding:3px 0; width:140px; color:#666360; font-size:11px; vertical-align:middle;">{html.escape(label)}</td>
-              <td style="padding:3px 8px; vertical-align:middle;">
-                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e8e4dc; border-radius:2px;">
-                  <tr><td style="width:{pct}%; background-color:{color}; height:14px; border-radius:2px; font-size:1px;">&nbsp;</td><td style="font-size:1px;">&nbsp;</td></tr>
-                </table>
-              </td>
-              <td style="padding:3px 0; width:36px; color:#1a1a1a; font-weight:700; text-align:right; font-size:11px; vertical-align:middle;">{pct}%</td>
-            </tr>''')
-        return "\n".join(rows)
+    # Build bookings table HTML
+    bookings_html = ""
+    for booking in data["bookings"]:
+        bookings_html += f"""
+        <tr>
+            <td>{html.escape(booking.get("name", ""))}</td>
+            <td>{html.escape(booking.get("book_in_date", ""))}</td>
+            <td>{html.escape(booking.get("city", ""))}</td>
+            <td>{html.escape(booking.get("description", ""))}</td>
+        </tr>
+        """
 
-    def build_booking_rows(items):
-        rows = []
-        for i, rec in enumerate(items, 1):
-            bg = "#faf8f5" if i % 2 == 1 else "#f4f1eb"
-            rows.append(f'''<tr style="background-color:{bg};">
-              <td style="padding:9px 12px; color:#999590; font-size:11px; border-bottom:1px solid #e8e4dc; vertical-align:top;">{i}</td>
-              <td style="padding:9px 12px; color:#1a1a1a; font-weight:600; border-bottom:1px solid #e8e4dc; vertical-align:top; font-size:12px;">{html.escape(rec.get("name", ""))}</td>
-              <td style="padding:9px 12px; color:#666360; border-bottom:1px solid #e8e4dc; vertical-align:top; font-size:12px;">{html.escape(rec.get("book_in_date", ""))}</td>
-              <td style="padding:9px 12px; color:#444240; border-bottom:1px solid #e8e4dc; vertical-align:top; font-size:11px;">{html.escape(rec.get("description", ""))}</td>
-              <td style="padding:9px 12px; color:#666360; border-bottom:1px solid #e8e4dc; vertical-align:top; font-size:12px;">{html.escape(rec.get("city", ""))}</td>
-            </tr>''')
-        return "\n".join(rows)
+    # Replace placeholders
+    html_output = template.replace("{{report_date}}", data["report_date"])
+    html_output = html_output.replace("{{arrests_date}}", data["arrests_date"])
+    html_output = html_output.replace("{{report_date_display}}", data["report_date_display"])
+    html_output = html_output.replace("{{total_bookings}}", str(data["total_bookings"]))
+    html_output = html_output.replace("{{top_charge}}", html.escape(data["top_charge"]))
+    html_output = html_output.replace("{{top_charge_count}}", str(data["top_charge_count"]))
+    html_output = html_output.replace("{{charge_mix}}", charge_mix_html)
+    html_output = html_output.replace("{{city_breakdown}}", city_breakdown_html)
+    html_output = html_output.replace("{{bookings}}", bookings_html)
 
-    # --- Replace placeholders ---
-    replacements = {
-        "{{report_date}}": data.get("report_date", ""),
-        "{{report_date_display}}": data.get("report_date_display", ""),
-        "{{arrests_date}}": data.get("arrests_date", ""),
-        "{{total_bookings}}": str(data.get("total_bookings", 0)),
-        "{{top_charge}}": html.escape(data.get("top_charge", "N/A")),
-        "{{charge_mix_rows}}": build_charge_mix_bars(data.get("charge_mix", [])),
-        "{{city_rows}}": build_city_bars(data.get("cities", [])),
-        "{{bar_rows}}": build_bar_rows(data.get("charge_bars", [])),
-        "{{booking_rows}}": build_booking_rows(data.get("bookings", [])),
-    }
-    for placeholder, value in replacements.items():
-        template = template.replace(placeholder, value)
-    
+    # Save the HTML output
     with open(HTML_OUTPUT_PATH, "w", encoding="utf-8") as f:
-        f.write(template)
+        f.write(html_output)
     print(f"HTML report saved to {HTML_OUTPUT_PATH}")
-    return template
+
+    return html_output
+
+# ---------------------------------------------------------------------------
+# PDF Generation (Using Pyppeteer)
+# ---------------------------------------------------------------------------
 
 async def generate_pdf_from_html(html_content: str):
-    """Converts HTML content to a PDF file using Pyppeteer/Chromium."""
-    print("Generating PDF report from HTML...")
+    """Generates a PDF from HTML content using Pyppeteer."""
+    print("Generating PDF from HTML...")
     try:
-        browser = await launch(executablePath="/usr/bin/chromium-browser", args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"])
+        browser = await launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
         page = await browser.newPage()
-        await page.setContent(html_content, {"waitUntil": "networkidle0"})
+        await page.setContent(html_content, waitUntil="networkidle0")
         await page.pdf({
             "path": PDF_OUTPUT_PATH,
             "format": "Letter",
@@ -413,66 +360,69 @@ async def generate_pdf_from_html(html_content: str):
         await browser.close()
         print(f"PDF report saved to {PDF_OUTPUT_PATH}")
     except Exception as e:
-        print(f"ERROR: Failed to generate PDF. {e}")
-        # Don't raise, as we still want to try sending the HTML email
+        print(f"ERROR: Failed to generate PDF: {e}")
+        raise
 
 # ---------------------------------------------------------------------------
 # Email Sending
 # ---------------------------------------------------------------------------
 
 def send_email(subject: str, html_body: str):
-    """Sends an email with HTML body and a PDF attachment (if it exists)."""
+    """Sends an email with the HTML report and PDF attachment."""
     if not all([TO_EMAIL, SMTP_USER, SMTP_PASS]):
-        print("WARNING: Missing one or more required email environment variables (TO_EMAIL, SMTP_USER, SMTP_PASS). Skipping email.")
+        print("WARNING: Email credentials not fully configured. Skipping email send.")
         return
 
-    print(f"Preparing to send email to {TO_EMAIL}...")
+    print(f"Sending email to {TO_EMAIL}...")
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = SMTP_USER
     msg["To"] = TO_EMAIL
-    msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    if os.path.exists(PDF_OUTPUT_PATH):
+    # Attach HTML body
+    msg.attach(MIMEText(html_body, "html"))
+
+    # Attach PDF
+    try:
         with open(PDF_OUTPUT_PATH, "rb") as f:
             pdf_attachment = MIMEApplication(f.read(), _subtype="pdf")
-            pdf_attachment.add_header("Content-Disposition", f"attachment; filename={os.path.basename(PDF_OUTPUT_PATH)}")
+            pdf_attachment.add_header("Content-Disposition", "attachment", filename=PDF_OUTPUT_PATH)
             msg.attach(pdf_attachment)
-            print("Attached PDF to email.")
-    else:
-        print("WARNING: PDF file not found. Sending email without attachment.")
+    except FileNotFoundError:
+        print(f"WARNING: PDF file not found at {PDF_OUTPUT_PATH}. Sending email without attachment.")
 
+    # Send email
     try:
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context) as server:
             server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(SMTP_USER, [TO_EMAIL], msg.as_string())
+            server.sendmail(SMTP_USER, TO_EMAIL, msg.as_string())
         print("Email sent successfully.")
     except Exception as e:
-        print(f"FATAL: Failed to send email. Error: {e}")
+        print(f"ERROR: Failed to send email: {e}")
         # Don't raise, just log the error.
 
 # ---------------------------------------------------------------------------
-# Kit (ConvertKit) Broadcast Sending
+# Kit (ConvertKit) Broadcast Sending - V3 API
 # ---------------------------------------------------------------------------
 
 def send_kit_broadcast(subject: str, html_body: str, report_date_str: str):
     """
     Creates and sends a Kit (ConvertKit) broadcast to ALL subscribers
-    via the Kit API v4.
+    via the Kit API v3.
 
     Workflow:
-      1. Create a broadcast with content, subject, and send_at set to now
+      1. Create a broadcast with content, subject, and send_at set to current time
          (which schedules it for immediate sending).
-      2. The broadcast is sent to all subscribers (no tag/segment filter).
+      2. The broadcast is sent to all subscribers automatically.
 
     Args:
         subject:          The email subject line.
         html_body:        The full HTML content for the email body.
         report_date_str:  The report date string for logging purposes.
     """
-    if not KIT_API_KEY:
-        print("WARNING: KIT_API_KEY environment variable not set. Skipping Kit broadcast.")
+    if not KIT_API_SECRET:
+        print("WARNING: KIT_API_SECRET environment variable not set. Skipping Kit broadcast.")
         return
 
     print("--- Kit Broadcast: Starting ---")
@@ -481,81 +431,30 @@ def send_kit_broadcast(subject: str, html_body: str, report_date_str: str):
     print(f"Kit Broadcast: Target = ALL subscribers")
 
     # -----------------------------------------------------------------------
-    # Step 1: Fetch email templates to find the best one for raw HTML
-    # -----------------------------------------------------------------------
-    email_template_id = None
-    try:
-        print("Kit Broadcast: Fetching email templates...")
-        templates_url = f"{KIT_API_BASE_URL}/email_templates"
-        headers = {
-            "Authorization": f"Bearer {KIT_API_KEY}",
-            "Content-Type": "application/json",
-        }
-        resp = requests.get(templates_url, headers=headers, timeout=30)
-        resp.raise_for_status()
-        templates_data = resp.json()
-        templates = templates_data.get("email_templates", [])
-
-        # Prefer "Text Only" template (minimal wrapper, lets our HTML shine)
-        # Fall back to "Custom HTML Template" if available, then default
-        for t in templates:
-            if t.get("name", "").lower() == "text only":
-                email_template_id = t["id"]
-                print(f"Kit Broadcast: Using template '{t['name']}' (ID: {email_template_id})")
-                break
-        if email_template_id is None:
-            for t in templates:
-                if "html" in t.get("name", "").lower():
-                    email_template_id = t["id"]
-                    print(f"Kit Broadcast: Using template '{t['name']}' (ID: {email_template_id})")
-                    break
-        if email_template_id is None and templates:
-            email_template_id = templates[0]["id"]
-            print(f"Kit Broadcast: Falling back to template '{templates[0]['name']}' (ID: {email_template_id})")
-        if email_template_id is None:
-            print("Kit Broadcast: No templates found. Will use account default.")
-
-    except Exception as e:
-        print(f"Kit Broadcast: WARNING - Could not fetch templates ({e}). Will use account default.")
-
-    # -----------------------------------------------------------------------
-    # Step 2: Create the broadcast with send_at = now (immediate send)
+    # Create and send the broadcast via v3 API
     # -----------------------------------------------------------------------
     try:
-        print("Kit Broadcast: Creating broadcast...")
+        print("Kit Broadcast: Creating and sending broadcast via v3 API...")
         create_url = f"{KIT_API_BASE_URL}/broadcasts"
         headers = {
-            "Authorization": f"Bearer {KIT_API_KEY}",
             "Content-Type": "application/json",
         }
 
         # Use current UTC time for immediate sending
+        # v3 API: if send_at is set to current/past time, it sends immediately
+        # if send_at is omitted, it creates a draft
         now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
 
         # Build the broadcast payload
+        # Note: v3 API requires api_secret in the body, not as a header
         payload = {
-            "content": html_body,
+            "api_secret": KIT_API_SECRET,
             "subject": subject,
+            "content": html_body,
             "description": f"Tarrant County Jail Report — {report_date_str}",
-            "public": False,
-            "published_at": now_utc,
-            "send_at": now_utc,
-            "preview_text": f"Tarrant County Jail Report for {report_date_str}",
             "email_address": KIT_FROM_EMAIL,
-            "subscriber_filter": [
-                {
-                    "all": [
-                        {
-                            "type": "all_subscribers"
-                        }
-                    ]
-                }
-            ],
+            "send_at": now_utc,
         }
-
-        # Add template ID if we found one
-        if email_template_id is not None:
-            payload["email_template_id"] = email_template_id
 
         resp = requests.post(create_url, headers=headers, json=payload, timeout=60)
 
@@ -570,7 +469,7 @@ def send_kit_broadcast(subject: str, html_body: str, report_date_str: str):
             print(f"Kit Broadcast: Scheduled send_at = {send_at}")
             print("Kit Broadcast: The broadcast will be sent to all subscribers.")
         elif resp.status_code == 401:
-            print("Kit Broadcast: ERROR - Authentication failed (401). Check your KIT_API_KEY.")
+            print("Kit Broadcast: ERROR - Authentication failed (401). Check your KIT_API_SECRET.")
             print(f"Kit Broadcast: Response body: {resp.text}")
         elif resp.status_code == 403:
             print("Kit Broadcast: ERROR - Forbidden (403). Your Kit plan may not support this feature.")
@@ -631,7 +530,7 @@ async def main():
     subject = f"Tarrant County Jail Report — {report_date_str}"
     send_email(subject, html_content)
 
-    # 7. Send Kit broadcast to ALL subscribers (NEW)
+    # 7. Send Kit broadcast to ALL subscribers (v3 API)
     send_kit_broadcast(subject, html_content, report_date_str)
 
     print("--- Report generation process complete. ---")
