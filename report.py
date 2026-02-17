@@ -350,7 +350,9 @@ async def generate_pdf_from_html(html_content: str):
     try:
         browser = await launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
         page = await browser.newPage()
-        await page.setContent(html_content, waitUntil="networkidle0")
+        await page.setContent(html_content)
+        # Wait for rendering to complete
+        await page.waitFor(2000)
         await page.pdf({
             "path": PDF_OUTPUT_PATH,
             "format": "Letter",
@@ -361,7 +363,8 @@ async def generate_pdf_from_html(html_content: str):
         print(f"PDF report saved to {PDF_OUTPUT_PATH}")
     except Exception as e:
         print(f"ERROR: Failed to generate PDF: {e}")
-        raise
+        # Don't raise — allow email and Kit broadcast to proceed even if PDF fails
+        print("WARNING: Continuing without PDF attachment.")
 
 # ---------------------------------------------------------------------------
 # Email Sending
