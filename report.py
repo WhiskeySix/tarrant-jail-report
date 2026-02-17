@@ -64,6 +64,67 @@ KIT_FROM_EMAIL = "report@dailyjailreports.com"
 
 # --- File Paths ---
 HTML_TEMPLATE_PATH = "daily_report_template.html"
+"""
+# ---------------------------------------------------------------------------
+# Tarrant County Daily Jail Report
+#
+# This script automates the generation of a professional daily jail report
+# for Tarrant County, TX. It performs the following steps:
+#
+# 1.  **Fetches Data**: Scrapes the latest "booked-in" PDF report from the
+#     Tarrant County Criminal Justice Reports website.
+# 2.  **Parses Data**: Extracts and cleans all booking records from the PDF,
+#     preserving the battle-tested parsing logic from the original implementation.
+# 3.  **Analyzes Stats**: Calculates key statistics for the daily snapshot,
+#     such as total bookings, top charge, charge mix, and city breakdown.
+# 4.  **Generates HTML**: Populates a professional HTML template with the
+#     scraped data and calculated stats.
+# 5.  **Generates PDF**: Uses a headless browser (Pyppeteer/Chromium) to create a
+#     high-quality, pixel-perfect PDF version of the report from the HTML.
+# 6.  **Sends Email**: Sends an email containing the HTML report in the body
+#     and the generated PDF as an attachment.
+#
+# This script is designed to be run via a GitHub Actions workflow on a
+# daily schedule.
+# ---------------------------------------------------------------------------
+"""
+
+import os
+import re
+import ssl
+import smtplib
+import asyncio
+import html
+from io import BytesIO
+from datetime import datetime, timedelta
+from collections import Counter
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
+
+import pdfplumber
+import requests
+from pyppeteer import launch
+
+# ---------------------------------------------------------------------------
+# Constants & Configuration
+# ---------------------------------------------------------------------------
+
+# --- Environment-based Configuration ---
+BOOKED_BASE_URL = os.getenv("BOOKED_BASE_URL", "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF")
+BOOKED_DAY = os.getenv("BOOKED_DAY", "01")
+TO_EMAIL = os.getenv("TO_EMAIL")
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASS = os.getenv("SMTP_PASS")
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+
+# --- Kit (ConvertKit) Configuration ---
+KIT_API_KEY = os.getenv("KIT_API_KEY")
+KIT_TAG_ID = os.getenv("KIT_TAG_ID")
+
+# --- File Paths ---
+HTML_TEMPLATE_PATH = "daily_report_template.html"
 HTML_OUTPUT_PATH = "daily_jail_report.html"
 PDF_OUTPUT_PATH = "daily_jail_report.pdf"
 
@@ -99,6 +160,9 @@ CATEGORY_RULES = [
     ("Evading / Resisting", ["EVADING", "RESIST", "INTERFER", "OBSTRUCT", "FLEE"]),
     ("Warrants / Court / Bond", ["WARRANT", "FTA", "FAIL TO APPEAR", "BOND", "PAROLE", "PROBATION"]),
 ]
+
+# --- Name Parsing Pattern (for embedded booking numbers) ---
+EMBEDDED_BOOKING_RE = re.compile(r"(\d{2}-\d{7})")
 
 # ---------------------------------------------------------------------------
 # PDF Scraping & Parsing (Logic preserved from original implementation)
@@ -158,12 +222,6 @@ def extract_city_from_addr_lines(addr_lines: list[str]) -> str:
     return "Unknown"
 
 def apply_content_line(rec: dict, ln: str) -> None:
-    """
-    Processes a content line and appends it to the appropriate field of the record.
-    FIX (Issue 2): Before processing, check if the line starts with a booking number
-    pattern that should NOT be appended to the name. Also handles inline booking
-    numbers correctly.
-    """
     rec.setdefault("addr_lines", [])
     rec.setdefault("charges", [])
     s = normalize_ws(ln)
@@ -190,73 +248,14 @@ def apply_content_line(rec: dict, ln: str) -> None:
     if not rec["charges"]: rec["charges"].append(cleaned)
     else: rec["charges"][-1] = normalize_ws(rec["charges"][-1] + " " + cleaned)
 
-
-def _split_name_with_embedded_booking(name_raw: str) -> tuple:
-    """
-    FIX (Issue 2): Checks if a name field contains an embedded booking number
-    pattern (XX-XXXXXXX) and subsequent charge text. If found, splits the name
-    at that point.
-
-    Returns:
-        (clean_name, extra_charges_list)
-        - clean_name: the actual name (everything before the booking number)
-        - extra_charges_list: list of charge strings extracted from after the booking number(s)
-    """
-    if not name_raw:
-        return (name_raw, [])
-
-    m = BOOKING_RE.search(name_raw)
-    if not m:
-        return (name_raw.strip(), [])
-
-    # Everything before the booking number is the real name
-    clean_name = name_raw[:m.start()].strip()
-
-    # Everything from the booking number onward may contain charges
-    remainder = name_raw[m.start():]
-    extra_charges = []
-    bookings = list(BOOKING_RE.finditer(remainder))
-    for i, b in enumerate(bookings):
-        start = b.end()
-        end = bookings[i + 1].start() if i + 1 < len(bookings) else len(remainder)
-        chunk = remainder[start:end].strip(" -\t")
-        cleaned = clean_charge_line(chunk)
-        if cleaned:
-            extra_charges.append(cleaned)
-
-    return (clean_name, extra_charges)
-
-
 def finalize_record(rec: dict) -> dict:
-    """
-    Finalizes a parsed record, cleaning up charges and extracting city info.
-    FIX (Issue 2): Post-processes the name field to detect and split out any
-    embedded booking numbers and charge text that were incorrectly appended.
-    """
-    # --- FIX (Issue 2): Split name if it contains embedded booking number ---
-    raw_name = rec.get("name", "").strip()
-    clean_name, extra_charges = _split_name_with_embedded_booking(raw_name)
-
-    charges = rec.get("charges", [])
-    # Prepend any charges extracted from the name field
-    if extra_charges:
-        charges = extra_charges + charges
-
-    # Deduplicate and clean charges
-    seen = set()
-    unique_charges = []
-    for c in charges:
-        cleaned = clean_charge_line(c)
-        if cleaned and cleaned not in seen:
-            seen.add(cleaned)
-            unique_charges.append(cleaned)
-
+    charges = [c for i, c in enumerate([clean_charge_line(c) for c in rec.get("charges", []) if c]) if c not in rec.get("charges", [])[:i]]
     addr_lines = [normalize_ws(a) for a in rec.get("addr_lines", []) if a and not is_junk_line(a)]
     return {
-        "name": clean_name,
+        "name": rec.get("name", "").strip(),
         "book_in_date": rec.get("book_in_date", "").strip(),
         "city": extract_city_from_addr_lines(addr_lines),
-        "description": ", ".join(unique_charges),
+        "description": ", ".join(charges),
     }
 
 def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
@@ -301,347 +300,207 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     return report_dt, records
 
 # ---------------------------------------------------------------------------
-# Stats Analysis
+# Name Parsing Fix (NEW)
 # ---------------------------------------------------------------------------
 
-def categorize_charge(charge_text: str) -> str:
-    """Categorizes a charge based on keywords."""
-    up = charge_text.upper()
-    for cat_name, keywords in CATEGORY_RULES:
-        if any(kw in up for kw in keywords):
-            return cat_name
-    return "Other"
+def fix_embedded_booking_numbers(records: list[dict]) -> list[dict]:
+    """
+    Post-processing step to fix names with embedded booking numbers.
+    Example: "BROWN, YARON VICTORY 26-0261822 ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE"
+    becomes name="BROWN, YARON VICTORY" and the booking number + charges move to description.
+    """
+    print("Applying name parsing fix for embedded booking numbers...")
+    fixed_records = []
+    for rec in records:
+        name = rec.get("name", "")
+        match = EMBEDDED_BOOKING_RE.search(name)
+        if match:
+            # Split at the booking number
+            booking_start = match.start()
+            clean_name = name[:booking_start].strip()
+            extra_content = name[booking_start:].strip()
+            
+            # Move the booking number and everything after it to the description
+            existing_desc = rec.get("description", "")
+            if existing_desc:
+                new_desc = f"{extra_content}, {existing_desc}"
+            else:
+                new_desc = extra_content
+            
+            rec["name"] = clean_name
+            rec["description"] = new_desc
+        
+        fixed_records.append(rec)
+    
+    print("Name parsing fix complete.")
+    return fixed_records
+
+# ---------------------------------------------------------------------------
+# Data Analysis & Statistics
+# ---------------------------------------------------------------------------
 
 def analyze_stats(records: list[dict]) -> dict:
-    """Analyzes booking records and returns statistics."""
-    total = len(records)
-    if total == 0:
-        return {
-            "total_bookings": 0,
-            "top_charge": "N/A",
-            "top_charge_count": 0,
-            "charge_mix": [],
-            "city_breakdown": [],
-        }
+    """Analyzes the booking records to generate snapshot statistics."""
+    total_bookings = len(records)
+    if total_bookings == 0: return {"total_bookings": 0}
 
-    # Flatten all charges
-    all_charges = []
-    for rec in records:
-        desc = rec.get("description", "")
-        if desc:
-            all_charges.extend([c.strip() for c in desc.split(",") if c.strip()])
+    # 1. Top single charge
+    first_charges = [rec.get("description", "").split(",")[0].strip().upper() for rec in records if rec.get("description")]
+    charge_counter = Counter(first_charges)
+    top_charge = charge_counter.most_common(1)[0][0] if charge_counter else "N/A"
 
-    # Categorize charges
-    categorized = [categorize_charge(c) for c in all_charges]
-    charge_counts = Counter(categorized)
-    top_charge = charge_counts.most_common(1)[0] if charge_counts else ("N/A", 0)
+    # 2. Charge Mix
+    categorized_charges = [(rec.get("description") or "").upper() for rec in records]
+    charge_mix_counts = Counter()
+    for charge_text in categorized_charges:
+        found_cat = "Other / Unknown"
+        for category, keywords in CATEGORY_RULES:
+            if any(keyword in charge_text for keyword in keywords):
+                found_cat = category
+                break
+        charge_mix_counts[found_cat] += 1
 
-    # Charge mix — ALL categories (sorted by count descending)
-    charge_mix = [{"category": cat, "count": cnt} for cat, cnt in charge_counts.most_common()]
+    charge_mix = []
+    for cat, _ in CATEGORY_RULES:
+        count = charge_mix_counts.get(cat, 0)
+        if count > 0: charge_mix.append((cat, f"{round((count / total_bookings) * 100)}%", count))
+    other_count = charge_mix_counts.get("Other / Unknown", 0)
+    if other_count > 0: charge_mix.append(("Other / Unknown", f"{round((other_count / total_bookings) * 100)}%", other_count))
+    charge_mix.sort(key=lambda x: x[2], reverse=True)
 
-    # City breakdown — top 9 cities + "All Other Cities" aggregate
+    # 3. City Breakdown
     cities = [rec.get("city", "Unknown") for rec in records]
-    city_counts = Counter(cities)
-    top_9 = city_counts.most_common(9)
-    top_9_total = sum(cnt for _, cnt in top_9)
-    other_total = total - top_9_total
-    city_breakdown = [{"city": city, "count": cnt} for city, cnt in top_9]
-    if other_total > 0:
-        city_breakdown.append({"city": "All Other Cities", "count": other_total})
+    city_counts = Counter(c for c in cities if c != "Unknown")
+    top_cities_raw = city_counts.most_common(9)
+    top_cities = [(city, f"{round((count / total_bookings) * 100)}%", count) for city, count in top_cities_raw]
+    
+    known_city_total = sum(c[2] for c in top_cities)
+    unknown_count = total_bookings - known_city_total
+    if unknown_count > 0: top_cities.append(("All Other Cities", f"{round((unknown_count / total_bookings) * 100)}%", unknown_count))
 
+    # 4. Charge Bars for visualization
+    charge_bars = []
+    for cat, pct_str, count in charge_mix:
+        label = {"Family Violence / Assault": "Fam. Violence", "Drugs / Possession": "Drugs / Poss.", "Evading / Resisting": "Evading", "Warrants / Court / Bond": "Warrants", "Other / Unknown": "Other"}.get(cat, cat)
+        color = "#a09890" if cat == "Other / Unknown" else "#c8a45a"
+        charge_bars.append((label, int(pct_str.replace("%", "")), color))
+
+    print("Successfully analyzed statistics.")
     return {
-        "total_bookings": total,
-        "top_charge": top_charge[0],
-        "top_charge_count": top_charge[1],
+        "total_bookings": total_bookings,
+        "top_charge": top_charge,
         "charge_mix": charge_mix,
-        "city_breakdown": city_breakdown,
+        "cities": top_cities,
+        "charge_bars": charge_bars,
     }
 
 # ---------------------------------------------------------------------------
-# Email-Safe HTML Builders (v4 — Percentage-based bars & refined styling)
-# ---------------------------------------------------------------------------
-
-# Color palette for bar charts
-BAR_COLOR_PRIMARY = "#c8a45a"
-BAR_COLOR_ALT = "#2c2c2c"
-BAR_BG = "#e8e4dc"  # Changed from #f0ede6 — warmer beige
-LABEL_COLOR = "#5c5955"  # Changed from #2c2c2c — warm medium gray for labels
-COUNT_COLOR = "#999590"
-LABEL_FONT = "Georgia, 'Times New Roman', Times, serif"  # Serif font for labels
-FONT_STACK = "Arial, Helvetica, sans-serif"  # Keep for non-label elements
-
-
-def build_charge_mix_bars(charge_mix: list[dict]) -> str:
-    """
-    Builds email-safe HTML bar chart rows for the Charge Mix section.
-    v4: Uses percentage-based two-cell bar tables for universal email client support.
-    Shows ALL categories with gold (#c8a45a) bars proportional to the
-    largest value. Each row shows: Label | [gold bar][beige remainder] | XX% (count)
-    Percentage is bold, count is in lighter color with parentheses.
-    """
-    if not charge_mix:
-        return ""
-
-    total_charges = sum(item["count"] for item in charge_mix)
-    max_count = max(item["count"] for item in charge_mix) if charge_mix else 1
-    if max_count <= 0:
-        max_count = 1
-    rows_html = ""
-
-    for item in charge_mix:
-        category = html.escape(item["category"])
-        count = item["count"]
-        pct = round((count / total_charges) * 100) if total_charges > 0 else 0
-        # Scale relative to max — top item gets 100%, others proportional
-        ratio = count / max_count
-        bar_pct = max(int(ratio * 100), 2)  # minimum 2% for visibility
-        bg_pct = 100 - bar_pct
-
-        rows_html += (
-            '<tr>\n'
-            f'  <td style="padding:10px 10px 10px 0; font-family:{LABEL_FONT}; font-size:13px; '
-            f'color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
-            f'align="left">{category}</td>\n'
-            f'  <td style="padding:10px 0; vertical-align:middle;" width="50%">\n'
-            f'    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">'
-            f'<tr>'
-            f'<td width="{bar_pct}%" style="background-color:{BAR_COLOR_PRIMARY}; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_COLOR_PRIMARY}">&nbsp;</td>'
-            f'<td width="{bg_pct}%" style="background-color:{BAR_BG}; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_BG}">&nbsp;</td>'
-            f'</tr></table>\n'
-            f'  </td>\n'
-            f'  <td style="padding:10px 0 10px 10px; font-family:{LABEL_FONT}; font-size:13px; '
-            f'white-space:nowrap; vertical-align:middle;" '
-            f'align="right"><strong style="color:#2c2c2c;">{pct}%</strong> '
-            f'<span style="color:{COUNT_COLOR};">({count})</span></td>\n'
-            '</tr>\n'
-        )
-
-    return rows_html
-
-
-def build_city_bars(city_breakdown: list[dict], total_bookings: int) -> str:
-    """
-    Builds email-safe HTML bar chart rows for the Arrests by City section.
-    v4: Uses percentage-based two-cell bar tables for universal email client support.
-    Shows top 9 cities + "All Other Cities" with dark (#2c2c2c) bars
-    proportional to the largest value. Each row shows:
-    Label | [dark bar][beige remainder] | XX% (count)
-    Percentage is bold, count is in lighter color with parentheses.
-    "All Other Cities" row is in italics.
-    Percentages are of TOTAL bookings.
-    """
-    if not city_breakdown:
-        return ""
-
-    max_count = max(item["count"] for item in city_breakdown) if city_breakdown else 1
-    if max_count <= 0:
-        max_count = 1
-    if total_bookings <= 0:
-        total_bookings = 1
-    rows_html = ""
-
-    for item in city_breakdown:
-        city_name = html.escape(item["city"])
-        count = item["count"]
-        pct = round((count / total_bookings) * 100) if total_bookings > 0 else 0
-        ratio = count / max_count
-        bar_pct = max(int(ratio * 100), 2)  # minimum 2% for visibility
-        bg_pct = 100 - bar_pct
-
-        # "All Other Cities" row in italics
-        is_other = (item["city"] == "All Other Cities")
-        label_open = '<em>' if is_other else ''
-        label_close = '</em>' if is_other else ''
-
-        rows_html += (
-            '<tr>\n'
-            f'  <td style="padding:10px 10px 10px 0; font-family:{LABEL_FONT}; font-size:13px; '
-            f'color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
-            f'align="left">{label_open}{city_name}{label_close}</td>\n'
-            f'  <td style="padding:10px 0; vertical-align:middle;" width="50%">\n'
-            f'    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">'
-            f'<tr>'
-            f'<td width="{bar_pct}%" style="background-color:{BAR_COLOR_ALT}; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_COLOR_ALT}">&nbsp;</td>'
-            f'<td width="{bg_pct}%" style="background-color:{BAR_BG}; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_BG}">&nbsp;</td>'
-            f'</tr></table>\n'
-            f'  </td>\n'
-            f'  <td style="padding:10px 0 10px 10px; font-family:{LABEL_FONT}; font-size:13px; '
-            f'white-space:nowrap; vertical-align:middle;" '
-            f'align="right">{label_open}<strong style="color:#2c2c2c;">{pct}%</strong> '
-            f'<span style="color:{COUNT_COLOR};">({count})</span>{label_close}</td>\n'
-            '</tr>\n'
-        )
-
-    return rows_html
-
-
-# Abbreviated labels for Charge Distribution section
-CATEGORY_ABBREVIATIONS = {
-    "Family Violence / Assault": "Fam. Violence",
-    "DWI / Alcohol": "DWI / Alcohol",
-    "Drugs / Possession": "Drugs / Poss.",
-    "Theft / Fraud": "Theft / Fraud",
-    "Weapons": "Weapons",
-    "Evading / Resisting": "Evading",
-    "Warrants / Court / Bond": "Warrants",
-    "Other": "Other",
-}
-
-
-def build_charge_distribution_bars(charge_mix: list[dict], total_charges: int) -> str:
-    """
-    Builds email-safe HTML bar chart rows for the Charge Distribution section.
-    v4: Uses percentage-based two-cell bar tables for universal email client support.
-    Shows ALL categories with abbreviated labels. Bars alternate between
-    gold (#c8a45a) and dark (#2c2c2c) colors. Percentage only (no count).
-    Bars are proportional to the largest percentage.
-    """
-    if not charge_mix or total_charges == 0:
-        return ""
-
-    # Alternate between gold and dark
-    alt_colors = [BAR_COLOR_PRIMARY, BAR_COLOR_ALT]
-
-    # Pre-calculate percentages
-    items_with_pct = []
-    for item in charge_mix:
-        pct = round((item["count"] / total_charges) * 100) if total_charges > 0 else 0
-        items_with_pct.append((item, pct))
-
-    # Find the maximum percentage for relative scaling
-    max_pct = max(pct for _, pct in items_with_pct) if items_with_pct else 1
-    if max_pct <= 0:
-        max_pct = 1
-
-    rows_html = ""
-
-    for idx, (item, pct_of_total) in enumerate(items_with_pct):
-        full_name = item["category"]
-        abbrev = CATEGORY_ABBREVIATIONS.get(full_name, full_name)
-        category = html.escape(abbrev)
-        color = alt_colors[idx % 2]
-
-        # Scale relative to the largest percentage — top item gets 100%, others proportional
-        ratio = pct_of_total / max_pct if max_pct > 0 else 0
-        bar_pct = max(int(ratio * 100), 2)  # minimum 2% for visibility
-        bg_pct = 100 - bar_pct
-
-        rows_html += (
-            '<tr>\n'
-            f'  <td style="padding:10px 10px 10px 0; font-family:{LABEL_FONT}; font-size:13px; '
-            f'color:{LABEL_COLOR}; white-space:nowrap; vertical-align:middle;" '
-            f'align="left">{category}</td>\n'
-            f'  <td style="padding:10px 0; vertical-align:middle;" width="50%">\n'
-            f'    <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">'
-            f'<tr>'
-            f'<td width="{bar_pct}%" style="background-color:{color}; height:14px; font-size:1px; line-height:1px;" bgcolor="{color}">&nbsp;</td>'
-            f'<td width="{bg_pct}%" style="background-color:{BAR_BG}; height:14px; font-size:1px; line-height:1px;" bgcolor="{BAR_BG}">&nbsp;</td>'
-            f'</tr></table>\n'
-            f'  </td>\n'
-            f'  <td style="padding:10px 0 10px 10px; font-family:{LABEL_FONT}; font-size:13px; '
-            f'font-weight:700; color:#2c2c2c; white-space:nowrap; vertical-align:middle;" '
-            f'align="right">{pct_of_total}%</td>\n'
-            '</tr>\n'
-        )
-
-    return rows_html
-
-
-def build_bookings_table(bookings: list[dict]) -> str:
-    """
-    Builds email-safe HTML table rows for the Full Booking List.
-    Uses simple inline-styled <tr>/<td> elements with alternating row colors.
-    All styles are inline. No CSS classes.
-    FIX (Issue 3): Clean, consistent column widths and improved padding.
-    """
-    if not bookings:
-        return ""
-
-    rows_html = ""
-    for idx, booking in enumerate(bookings):
-        row_num = idx + 1
-        name = html.escape(booking.get("name", ""))
-        date = html.escape(booking.get("book_in_date", ""))
-        charges = html.escape(booking.get("description", ""))
-        city = html.escape(booking.get("city", ""))
-
-        # Alternating row background
-        bg = "#ffffff" if row_num % 2 == 1 else "#f9f8f6"
-
-        # Common cell style — consistent padding and font
-        cell_base = (
-            f"padding:9px 10px; font-family:{FONT_STACK}; font-size:11px; "
-            f"color:#2c2c2c; border-bottom:1px solid #e8e4dc; vertical-align:top;"
-        )
-
-        rows_html += (
-            f'<tr style="background-color:{bg};" bgcolor="{bg}">\n'
-            f'  <td style="{cell_base} white-space:nowrap; color:{COUNT_COLOR};" align="center" width="5%">{row_num}</td>\n'
-            f'  <td style="{cell_base} font-weight:700;" align="left" width="22%">{name}</td>\n'
-            f'  <td style="{cell_base} white-space:nowrap;" align="left" width="12%">{date}</td>\n'
-            f'  <td style="{cell_base}" align="left" width="46%">{charges}</td>\n'
-            f'  <td style="{cell_base} white-space:nowrap;" align="left" width="15%">{city}</td>\n'
-            '</tr>\n'
-        )
-
-    return rows_html
-
-
-# ---------------------------------------------------------------------------
-# HTML Report Generation
+# HTML & PDF Generation
 # ---------------------------------------------------------------------------
 
 def render_html(data: dict) -> str:
-    """Renders the HTML report using the template and data."""
+    """Renders the HTML report by populating a template file."""
+    print("Rendering HTML report...")
     try:
         with open(HTML_TEMPLATE_PATH, "r", encoding="utf-8") as f:
             template = f.read()
     except FileNotFoundError:
-        print(f"FATAL: Template file not found at {HTML_TEMPLATE_PATH}")
+        print(f"FATAL: HTML template not found at {HTML_TEMPLATE_PATH}")
         raise
 
-    # Build email-safe HTML for bar charts and booking table
-    charge_mix_html = build_charge_mix_bars(data["charge_mix"])
-    city_html = build_city_bars(data["city_breakdown"], data["total_bookings"])
+    # --- Helper functions for building HTML snippets ---
+    def build_charge_mix_bars(items):
+        """Build bar graph rows for Charge Mix section."""
+        rows = []
+        for label, pct_str, count in items:
+            pct = int(pct_str.replace("%", ""))
+            # Use gray color for "Other / Unknown", amber/gold for all others
+            color = "#a09890" if label == "Other / Unknown" else "#c8a45a"
+            rows.append(f'''<tr>
+              <td style="padding:3px 0; width:140px; color:#666360; font-size:11px; vertical-align:middle;">{html.escape(label)}</td>
+              <td style="padding:3px 8px; vertical-align:middle;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e8e4dc; border-radius:2px;">
+                  <tr><td style="width:{pct}%; background-color:{color}; height:14px; border-radius:2px; font-size:1px;">&nbsp;</td><td style="font-size:1px;">&nbsp;</td></tr>
+                </table>
+              </td>
+              <td style="padding:3px 0; width:70px; color:#1a1a1a; font-weight:700; text-align:right; font-size:11px; vertical-align:middle;">{pct}%&nbsp;<span style="color:#999590; font-weight:400; font-size:10px;">({count})</span></td>
+            </tr>''')
+        return "\n".join(rows)
 
-    # Calculate total charges for distribution percentages
-    total_charges = sum(item["count"] for item in data["charge_mix"])
-    bar_html = build_charge_distribution_bars(data["charge_mix"], total_charges)
+    def build_city_bars(items):
+        """Build bar graph rows for Arrests by City section."""
+        rows = []
+        for label, pct_str, count in items:
+            pct = int(pct_str.replace("%", ""))
+            # Use gray color for "All Other Cities", amber/gold for specific cities
+            color = "#a09890" if label == "All Other Cities" else "#c8a45a"
+            label_style = "color:#999590; font-style:italic;" if label == "All Other Cities" else "color:#666360;"
+            rows.append(f'''<tr>
+              <td style="padding:3px 0; width:140px; {label_style} font-size:11px; vertical-align:middle;">{html.escape(label)}</td>
+              <td style="padding:3px 8px; vertical-align:middle;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e8e4dc; border-radius:2px;">
+                  <tr><td style="width:{pct}%; background-color:{color}; height:14px; border-radius:2px; font-size:1px;">&nbsp;</td><td style="font-size:1px;">&nbsp;</td></tr>
+                </table>
+              </td>
+              <td style="padding:3px 0; width:70px; color:#1a1a1a; font-weight:700; text-align:right; font-size:11px; vertical-align:middle;">{pct}%&nbsp;<span style="color:#999590; font-weight:400; font-size:10px;">({count})</span></td>
+            </tr>''')
+        return "\n".join(rows)
 
-    bookings_html = build_bookings_table(data["bookings"])
+    def build_bar_rows(items):
+        """Build bar graph rows for Charge Distribution section."""
+        rows = []
+        for label, pct, color in items:
+            rows.append(f'''<tr>
+              <td style="padding:3px 0; width:140px; color:#666360; font-size:11px; vertical-align:middle;">{html.escape(label)}</td>
+              <td style="padding:3px 8px; vertical-align:middle;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#e8e4dc; border-radius:2px;">
+                  <tr><td style="width:{pct}%; background-color:{color}; height:14px; border-radius:2px; font-size:1px;">&nbsp;</td><td style="font-size:1px;">&nbsp;</td></tr>
+                </table>
+              </td>
+              <td style="padding:3px 0; width:36px; color:#1a1a1a; font-weight:700; text-align:right; font-size:11px; vertical-align:middle;">{pct}%</td>
+            </tr>''')
+        return "\n".join(rows)
 
-    # Replace placeholders
-    html_output = template.replace("{{report_date}}", data["report_date"])
-    html_output = html_output.replace("{{arrests_date}}", data["arrests_date"])
-    html_output = html_output.replace("{{report_date_display}}", data["report_date_display"])
-    html_output = html_output.replace("{{total_bookings}}", str(data["total_bookings"]))
-    html_output = html_output.replace("{{top_charge}}", html.escape(data["top_charge"]))
-    html_output = html_output.replace("{{top_charge_count}}", str(data["top_charge_count"]))
-    html_output = html_output.replace("{{charge_mix_rows}}", charge_mix_html)
-    html_output = html_output.replace("{{city_rows}}", city_html)
-    html_output = html_output.replace("{{bar_rows}}", bar_html)
-    html_output = html_output.replace("{{booking_rows}}", bookings_html)
+    def build_booking_rows(items):
+        rows = []
+        for i, rec in enumerate(items, 1):
+            bg = "#faf8f5" if i % 2 == 1 else "#f4f1eb"
+            rows.append(f'''<tr style="background-color:{bg};">
+              <td style="padding:9px 12px; color:#999590; font-size:11px; border-bottom:1px solid #e8e4dc; vertical-align:top;">{i}</td>
+              <td style="padding:9px 12px; color:#1a1a1a; font-weight:600; border-bottom:1px solid #e8e4dc; vertical-align:top; font-size:12px;">{html.escape(rec.get("name", ""))}</td>
+              <td style="padding:9px 12px; color:#666360; border-bottom:1px solid #e8e4dc; vertical-align:top; font-size:12px;">{html.escape(rec.get("book_in_date", ""))}</td>
+              <td style="padding:9px 12px; color:#444240; border-bottom:1px solid #e8e4dc; vertical-align:top; font-size:11px;">{html.escape(rec.get("description", ""))}</td>
+              <td style="padding:9px 12px; color:#666360; border-bottom:1px solid #e8e4dc; vertical-align:top; font-size:12px;">{html.escape(rec.get("city", ""))}</td>
+            </tr>''')
+        return "\n".join(rows)
 
-    # Save the HTML output
+    # --- Replace placeholders ---
+    replacements = {
+        "{{report_date}}": data.get("report_date", ""),
+        "{{report_date_display}}": data.get("report_date_display", ""),
+        "{{arrests_date}}": data.get("arrests_date", ""),
+        "{{total_bookings}}": str(data.get("total_bookings", 0)),
+        "{{top_charge}}": html.escape(data.get("top_charge", "N/A")),
+        "{{charge_mix_rows}}": build_charge_mix_bars(data.get("charge_mix", [])),
+        "{{city_rows}}": build_city_bars(data.get("cities", [])),
+        "{{bar_rows}}": build_bar_rows(data.get("charge_bars", [])),
+        "{{booking_rows}}": build_booking_rows(data.get("bookings", [])),
+    }
+    for placeholder, value in replacements.items():
+        template = template.replace(placeholder, value)
+    
     with open(HTML_OUTPUT_PATH, "w", encoding="utf-8") as f:
-        f.write(html_output)
+        f.write(template)
     print(f"HTML report saved to {HTML_OUTPUT_PATH}")
-
-    return html_output
-
-# ---------------------------------------------------------------------------
-# PDF Generation (Using Pyppeteer)
-# ---------------------------------------------------------------------------
+    return template
 
 async def generate_pdf_from_html(html_content: str):
-    """Generates a PDF from HTML content using Pyppeteer."""
-    print("Generating PDF from HTML...")
+    """Converts HTML content to a PDF file using Pyppeteer/Chromium."""
+    print("Generating PDF report from HTML...")
     try:
-        browser = await launch(headless=True, args=["--no-sandbox", "--disable-setuid-sandbox"])
+        browser = await launch(executablePath="/usr/bin/chromium-browser", args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"])
         page = await browser.newPage()
-        await page.setContent(html_content)
-        # Wait for rendering to complete
-        await page.waitFor(2000)
+        await page.setContent(html_content, {"waitUntil": "networkidle0"})
         await page.pdf({
             "path": PDF_OUTPUT_PATH,
             "format": "Letter",
@@ -651,163 +510,112 @@ async def generate_pdf_from_html(html_content: str):
         await browser.close()
         print(f"PDF report saved to {PDF_OUTPUT_PATH}")
     except Exception as e:
-        print(f"ERROR: Failed to generate PDF: {e}")
-        # Don't raise — allow email and Kit broadcast to proceed even if PDF fails
-        print("WARNING: Continuing without PDF attachment.")
+        print(f"ERROR: Failed to generate PDF. {e}")
+        # Don't raise, as we still want to try sending the HTML email
 
 # ---------------------------------------------------------------------------
 # Email Sending
 # ---------------------------------------------------------------------------
 
 def send_email(subject: str, html_body: str):
-    """Sends an email with the HTML report and PDF attachment."""
+    """Sends an email with HTML body and a PDF attachment (if it exists)."""
     if not all([TO_EMAIL, SMTP_USER, SMTP_PASS]):
-        print("WARNING: Email credentials not fully configured. Skipping email send.")
+        print("WARNING: Missing one or more required email environment variables (TO_EMAIL, SMTP_USER, SMTP_PASS). Skipping email.")
         return
 
-    print(f"Sending email to {TO_EMAIL}...")
+    print(f"Preparing to send email to {TO_EMAIL}...")
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = SMTP_USER
     msg["To"] = TO_EMAIL
+    msg.attach(MIMEText(html_body, "html", "utf-8"))
 
-    # Attach HTML body
-    msg.attach(MIMEText(html_body, "html"))
-
-    # Attach PDF
-    try:
+    if os.path.exists(PDF_OUTPUT_PATH):
         with open(PDF_OUTPUT_PATH, "rb") as f:
             pdf_attachment = MIMEApplication(f.read(), _subtype="pdf")
-            pdf_attachment.add_header("Content-Disposition", "attachment", filename=PDF_OUTPUT_PATH)
+            pdf_attachment.add_header("Content-Disposition", f"attachment; filename={os.path.basename(PDF_OUTPUT_PATH)}")
             msg.attach(pdf_attachment)
-    except FileNotFoundError:
-        print(f"WARNING: PDF file not found at {PDF_OUTPUT_PATH}. Sending email without attachment.")
+            print("Attached PDF to email.")
+    else:
+        print("WARNING: PDF file not found. Sending email without attachment.")
 
-    # Send email
     try:
         context = ssl.create_default_context()
         with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context) as server:
             server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(SMTP_USER, TO_EMAIL, msg.as_string())
+            server.sendmail(SMTP_USER, [TO_EMAIL], msg.as_string())
         print("Email sent successfully.")
     except Exception as e:
-        print(f"ERROR: Failed to send email: {e}")
+        print(f"FATAL: Failed to send email. Error: {e}")
         # Don't raise, just log the error.
 
 # ---------------------------------------------------------------------------
-# Kit (ConvertKit) Broadcast Sending - V3 API
+# Kit (ConvertKit) Broadcast Integration (NEW)
 # ---------------------------------------------------------------------------
 
-def _strip_html_wrapper_for_kit(html_body: str) -> str:
+def send_kit_broadcast(subject: str, html_body: str):
     """
-    Strips the <!DOCTYPE html>, <html>, <head>, and <body> wrapper tags from
-    the HTML content so that Kit (ConvertKit) doesn't render them as visible
-    text in the broadcast email. Returns only the inner body content.
+    Sends the report as a Kit (ConvertKit) broadcast to subscribers.
+    Strips the DOCTYPE, html, head, and body wrapper tags because Kit adds its own wrapper.
     """
-    import re as _re
-    # Extract content between <body...> and </body>
-    body_match = _re.search(r'<body[^>]*>(.*)</body>', html_body, _re.DOTALL | _re.IGNORECASE)
-    if body_match:
-        return body_match.group(1).strip()
-    # Fallback: strip DOCTYPE, html, head tags manually
-    stripped = _re.sub(r'<!DOCTYPE[^>]*>', '', html_body, flags=_re.IGNORECASE).strip()
-    stripped = _re.sub(r'</?html[^>]*>', '', stripped, flags=_re.IGNORECASE).strip()
-    stripped = _re.sub(r'<head[^>]*>.*?</head>', '', stripped, flags=_re.IGNORECASE | _re.DOTALL).strip()
-    stripped = _re.sub(r'</?body[^>]*>', '', stripped, flags=_re.IGNORECASE).strip()
-    return stripped
-
-
-def send_kit_broadcast(subject: str, html_body: str, report_date_str: str):
-    """
-    Creates and sends a Kit (ConvertKit) broadcast to ALL subscribers
-    via the Kit API v3.
-
-    Workflow:
-      1. Create a broadcast with content, subject, and send_at set to current time
-         (which schedules it for immediate sending).
-      2. The broadcast is sent to all subscribers automatically.
-
-    Args:
-        subject:          The email subject line.
-        html_body:        The full HTML content for the email body.
-        report_date_str:  The report date string for logging purposes.
-    """
-    if not KIT_API_SECRET:
-        print("WARNING: KIT_API_SECRET environment variable not set. Skipping Kit broadcast.")
+    if not all([KIT_API_KEY, KIT_TAG_ID]):
+        print("WARNING: Missing one or more required Kit environment variables (KIT_API_KEY, KIT_TAG_ID). Skipping Kit broadcast.")
         return
-
-    print("--- Kit Broadcast: Starting ---")
-    print(f"Kit Broadcast: Subject = {subject}")
-    print(f"Kit Broadcast: From = {KIT_FROM_EMAIL}")
-    print(f"Kit Broadcast: Target = ALL subscribers")
-
-    # -----------------------------------------------------------------------
-    # Create and send the broadcast via v3 API
-    # -----------------------------------------------------------------------
-    try:
-        print("Kit Broadcast: Creating and sending broadcast via v3 API...")
-        create_url = f"{KIT_API_BASE_URL}/broadcasts"
-        headers = {
-            "Content-Type": "application/json",
-        }
-
-        # Use current UTC time for immediate sending
-        # v3 API: if send_at is set to current/past time, it sends immediately
-        # if send_at is omitted, it creates a draft
-        now_utc = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S+00:00")
-
-        # Build the broadcast payload
-        # Note: v3 API requires api_secret in the body, not as a header
-        # Strip DOCTYPE/html/head wrapper to prevent Kit from rendering
-        # "DOCTYPE html>" as visible text at the top of the broadcast
-        kit_content = _strip_html_wrapper_for_kit(html_body)
-
-        payload = {
-            "api_secret": KIT_API_SECRET,
-            "subject": subject,
-            "content": kit_content,
-            "description": f"Tarrant County Jail Report — {report_date_str}",
-            "email_address": KIT_FROM_EMAIL,
-            "send_at": now_utc,
-        }
-
-        resp = requests.post(create_url, headers=headers, json=payload, timeout=60)
-
-        # Log the response for debugging
-        print(f"Kit Broadcast: API response status = {resp.status_code}")
-
-        if resp.status_code == 201:
-            broadcast_data = resp.json()
-            broadcast_id = broadcast_data.get("broadcast", {}).get("id", "unknown")
-            send_at = broadcast_data.get("broadcast", {}).get("send_at", "unknown")
-            print(f"Kit Broadcast: SUCCESS! Broadcast created (ID: {broadcast_id})")
-            print(f"Kit Broadcast: Scheduled send_at = {send_at}")
-            print("Kit Broadcast: The broadcast will be sent to all subscribers.")
-        elif resp.status_code == 401:
-            print("Kit Broadcast: ERROR - Authentication failed (401). Check your KIT_API_SECRET.")
-            print(f"Kit Broadcast: Response body: {resp.text}")
-        elif resp.status_code == 403:
-            print("Kit Broadcast: ERROR - Forbidden (403). Your Kit plan may not support this feature.")
-            print(f"Kit Broadcast: Response body: {resp.text}")
-        elif resp.status_code == 422:
-            print("Kit Broadcast: ERROR - Validation error (422). Check the payload.")
-            print(f"Kit Broadcast: Response body: {resp.text}")
+    
+    print("Preparing to send Kit broadcast...")
+    
+    # Strip the wrapper tags and extract only the body content
+    # Find the opening <body> tag and closing </body> tag
+    body_start = html_body.find("<body")
+    if body_start == -1:
+        print("WARNING: Could not find <body> tag in HTML. Sending full HTML to Kit.")
+        kit_html = html_body
+    else:
+        # Find the end of the opening <body> tag
+        body_tag_end = html_body.find(">", body_start)
+        if body_tag_end == -1:
+            print("WARNING: Malformed <body> tag. Sending full HTML to Kit.")
+            kit_html = html_body
         else:
-            print(f"Kit Broadcast: ERROR - Unexpected status code {resp.status_code}")
-            print(f"Kit Broadcast: Response body: {resp.text}")
-
-    except requests.exceptions.Timeout:
-        print("Kit Broadcast: ERROR - Request timed out. The Kit API may be slow or unreachable.")
-    except requests.exceptions.ConnectionError:
-        print("Kit Broadcast: ERROR - Could not connect to the Kit API. Check network connectivity.")
-    except requests.exceptions.RequestException as e:
-        print(f"Kit Broadcast: ERROR - Request failed: {e}")
-    except json.JSONDecodeError as e:
-        print(f"Kit Broadcast: ERROR - Could not parse API response as JSON: {e}")
-    except Exception as e:
-        print(f"Kit Broadcast: ERROR - Unexpected error: {e}")
-
-    print("--- Kit Broadcast: Finished ---")
+            # Find the closing </body> tag
+            body_end = html_body.find("</body>", body_tag_end)
+            if body_end == -1:
+                print("WARNING: Could not find </body> tag. Sending content after <body> tag to Kit.")
+                kit_html = html_body[body_tag_end + 1:]
+            else:
+                # Extract only the content between <body> and </body>
+                kit_html = html_body[body_tag_end + 1:body_end]
+    
+    # Prepare the Kit API request
+    api_url = "https://api.convertkit.com/v3/broadcasts"
+    payload = {
+        "api_key": KIT_API_KEY,
+        "subject": subject,
+        "content": kit_html.strip(),
+        "description": f"Automated jail report broadcast for {subject}",
+        "public": False,
+        "published_at": None,  # Send immediately
+        "send_at": None,  # Send immediately
+        "thumbnail_url": "",
+        "email_layout_template": "",
+    }
+    
+    # Add tag_id if provided (to send to specific subscribers)
+    if KIT_TAG_ID:
+        payload["subscriber_filter"] = {
+            "tag_id": int(KIT_TAG_ID)
+        }
+    
+    try:
+        response = requests.post(api_url, json=payload, timeout=30)
+        response.raise_for_status()
+        result = response.json()
+        broadcast_id = result.get("broadcast", {}).get("id")
+        print(f"Kit broadcast created successfully. Broadcast ID: {broadcast_id}")
+    except requests.RequestException as e:
+        print(f"ERROR: Failed to send Kit broadcast. Error: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            print(f"Response: {e.response.text}")
 
 # ---------------------------------------------------------------------------
 # Main Execution
@@ -822,10 +630,13 @@ async def main():
     pdf_bytes = fetch_pdf(pdf_url)
     report_dt, records = parse_booked_in(pdf_bytes)
 
-    # 2. Analyze statistics
+    # 2. Apply name parsing fix (NEW)
+    records = fix_embedded_booking_numbers(records)
+
+    # 3. Analyze statistics
     stats = analyze_stats(records)
 
-    # 3. Prepare data for the template
+    # 4. Prepare data for the template
     report_date_str = report_dt.strftime("%-m/%-d/%Y")
     template_data = {
         **stats,
@@ -835,18 +646,18 @@ async def main():
         "bookings": sorted(records, key=lambda x: x.get("name", "")),
     }
 
-    # 4. Generate HTML report
+    # 5. Generate HTML report
     html_content = render_html(template_data)
 
-    # 5. Generate PDF report
+    # 6. Generate PDF report
     await generate_pdf_from_html(html_content)
 
-    # 6. Send the email to the owner (existing behavior)
+    # 7. Send the email
     subject = f"Tarrant County Jail Report — {report_date_str}"
     send_email(subject, html_content)
 
-    # 7. Send Kit broadcast to ALL subscribers (v3 API)
-    send_kit_broadcast(subject, html_content, report_date_str)
+    # 8. Send Kit broadcast (NEW)
+    send_kit_broadcast(subject, html_content)
 
     print("--- Report generation process complete. ---")
 
