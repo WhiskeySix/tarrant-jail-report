@@ -42,7 +42,9 @@ SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASS = os.getenv("SMTP_PASS", "").strip()
 
 # Defaults if not set as secrets
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com").strip()
+SMTP_HOST = (os.getenv("SMTP_HOST", "smtp.gmail.com") or "smtp.gmail.com").strip()
+if not SMTP_HOST:
+    SMTP_HOST = "smtp.gmail.com"
 
 # ✅ Robust SMTP_PORT parsing (prevents "***" / blank / bad values)
 _raw_port = (os.getenv("SMTP_PORT", "465") or "465").strip()
