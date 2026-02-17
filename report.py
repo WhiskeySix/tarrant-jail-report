@@ -17,72 +17,6 @@
 #     high-quality, pixel-perfect PDF version of the report from the HTML.
 # 6.  **Sends Email**: Sends an email containing the HTML report in the body
 #     and the generated PDF as an attachment.
-# 7.  **Sends Kit Broadcast**: Creates and sends a Kit (ConvertKit) broadcast
-#     to all subscribers via the Kit API v3, using the generated HTML report
-#     as the email content.
-#
-# This script is designed to be run via a GitHub Actions workflow on a
-# daily schedule.
-# ---------------------------------------------------------------------------
-"""
-
-import os
-import re
-import ssl
-import json
-import smtplib
-import asyncio
-import html
-from io import BytesIO
-from datetime import datetime, timedelta, timezone
-from collections import Counter
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.application import MIMEApplication
-
-import pdfplumber
-import requests
-from pyppeteer import launch
-
-# ---------------------------------------------------------------------------
-# Constants & Configuration
-# ---------------------------------------------------------------------------
-
-# --- Environment-based Configuration ---
-BOOKED_BASE_URL = os.getenv("BOOKED_BASE_URL", "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF")
-BOOKED_DAY = os.getenv("BOOKED_DAY", "01")
-TO_EMAIL = os.getenv("TO_EMAIL")
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASS = os.getenv("SMTP_PASS")
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
-
-# --- Kit (ConvertKit) API Configuration ---
-KIT_API_SECRET = os.getenv("KIT_API_SECRET")
-KIT_API_BASE_URL = "https://api.kit.com/v3"
-KIT_FROM_EMAIL = "report@dailyjailreports.com"
-
-# --- File Paths ---
-HTML_TEMPLATE_PATH = "daily_report_template.html"
-"""
-# ---------------------------------------------------------------------------
-# Tarrant County Daily Jail Report
-#
-# This script automates the generation of a professional daily jail report
-# for Tarrant County, TX. It performs the following steps:
-#
-# 1.  **Fetches Data**: Scrapes the latest "booked-in" PDF report from the
-#     Tarrant County Criminal Justice Reports website.
-# 2.  **Parses Data**: Extracts and cleans all booking records from the PDF,
-#     preserving the battle-tested parsing logic from the original implementation.
-# 3.  **Analyzes Stats**: Calculates key statistics for the daily snapshot,
-#     such as total bookings, top charge, charge mix, and city breakdown.
-# 4.  **Generates HTML**: Populates a professional HTML template with the
-#     scraped data and calculated stats.
-# 5.  **Generates PDF**: Uses a headless browser (Pyppeteer/Chromium) to create a
-#     high-quality, pixel-perfect PDF version of the report from the HTML.
-# 6.  **Sends Email**: Sends an email containing the HTML report in the body
-#     and the generated PDF as an attachment.
 #
 # This script is designed to be run via a GitHub Actions workflow on a
 # daily schedule.
@@ -121,7 +55,7 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
 
 # --- Kit (ConvertKit) Configuration ---
 KIT_API_KEY = os.getenv("KIT_API_KEY")
-KIT_TAG_ID = os.getenv("KIT_TAG_ID")
+KIT_API_SECRET = os.getenv("KIT_API_SECRET")
 
 # --- File Paths ---
 HTML_TEMPLATE_PATH = "daily_report_template.html"
@@ -558,8 +492,8 @@ def send_kit_broadcast(subject: str, html_body: str):
     Sends the report as a Kit (ConvertKit) broadcast to subscribers.
     Strips the DOCTYPE, html, head, and body wrapper tags because Kit adds its own wrapper.
     """
-    if not all([KIT_API_KEY, KIT_TAG_ID]):
-        print("WARNING: Missing one or more required Kit environment variables (KIT_API_KEY, KIT_TAG_ID). Skipping Kit broadcast.")
+    if not KIT_API_KEY:
+        print("WARNING: Missing KIT_API_KEY environment variable. Skipping Kit broadcast.")
         return
     
     print("Preparing to send Kit broadcast...")
@@ -600,11 +534,9 @@ def send_kit_broadcast(subject: str, html_body: str):
         "email_layout_template": "",
     }
     
-    # Add tag_id if provided (to send to specific subscribers)
-    if KIT_TAG_ID:
-        payload["subscriber_filter"] = {
-            "tag_id": int(KIT_TAG_ID)
-        }
+    # Add api_secret if available for additional authentication
+    if KIT_API_SECRET:
+        payload["api_secret"] = KIT_API_SECRET
     
     try:
         response = requests.post(api_url, json=payload, timeout=30)
