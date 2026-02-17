@@ -1,3 +1,16 @@
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# OS
+.DS_Store
+
+# Local runs
 .env
+
+# Optional: if you ever output temp files
+*.log
