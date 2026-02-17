@@ -51,7 +51,7 @@ TO_EMAIL = os.getenv("TO_EMAIL")
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "465"))
+SMTP_PORT = int(os.getenv("SMTP_PORT") or "465")
 
 # --- Kit (ConvertKit) Configuration ---
 KIT_API_KEY = os.getenv("KIT_API_KEY")
