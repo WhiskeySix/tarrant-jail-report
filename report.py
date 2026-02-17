@@ -103,25 +103,25 @@ EMBEDDED_BOOKING_RE = re.compile(r"(\d{2}-\d{7})")
 # ---------------------------------------------------------------------------
 
 def fetch_pdf(url: str) -> bytes:
-"""Fetches the PDF content from a given URL with retries."""
-print(f"Fetching PDF from {url}...")
-headers = {
-"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-}
-for attempt in range(3):
-try:
-r = requests.get(url, timeout=120, headers=headers)
-r.raise_for_status()
-print("Successfully fetched PDF.")
-return r.content
-except requests.RequestException as e:
-print(f"Attempt {attempt + 1}/3 failed: {e}")
-if attempt < 2:
-import time
-time.sleep(10)
-else:
-print(f"FATAL: All 3 attempts failed for {url}")
-raise
+    """Fetches the PDF content from a given URL with retries."""
+    import time as _time
+    print(f"Fetching PDF from {url}...")
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    for attempt in range(3):
+        try:
+            r = requests.get(url, timeout=120, headers=headers)
+            r.raise_for_status()
+            print("Successfully fetched PDF.")
+            return r.content
+        except requests.RequestException as e:
+            print(f"Attempt {attempt + 1}/3 failed: {e}")
+            if attempt < 2:
+                _time.sleep(10)
+            else:
+                print(f"FATAL: All 3 attempts failed for {url}")
+                raise
 
 def normalize_ws(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
