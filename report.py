@@ -646,7 +646,7 @@ async def main():
     html_content = render_html(template_data)
     await generate_pdf_from_html(html_content)
 
-    subject = f"Tarrant County Jail Report — {report_date_str}"
+    subject = f"Tarrant County Jail Report — Arrests for {arrests_date_str}"
 
     # Existing daily email to you
     send_email(subject, html_content)
