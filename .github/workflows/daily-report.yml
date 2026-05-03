@@ -3,7 +3,7 @@ name: Daily Jail Report
 on:
   workflow_dispatch:
   schedule:
-    # 7:30 AM CST = 13:30 UTC (CST is UTC-6)
+    # 7:30 AM CST = 13:30 UTC
     - cron: "30 13 * * *"
 
 permissions:
@@ -30,6 +30,7 @@ jobs:
       - name: Install pyppeteer Chromium
         run: python -c "from pyppeteer.chromium_downloader import download_chromium; download_chromium()"
 
+      # ✅ UPDATED: includes KIT_API_KEY check
       - name: Sanity check secrets are present (not values)
         env:
           BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
@@ -38,16 +39,27 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          KIT_API_KEY: ${{ secrets.KIT_API_KEY }}
         run: |
           python - << 'PY'
           import os
           def ok(name):
               v = os.getenv(name, "")
               return "✅" if (v and v.strip()) else "❌"
-          for k in ["BOOKED_BASE_URL","BOOKED_DAY","TO_EMAIL","SMTP_USER","SMTP_PASS","SMTP_PORT"]:
+
+          for k in [
+              "BOOKED_BASE_URL",
+              "BOOKED_DAY",
+              "TO_EMAIL",
+              "SMTP_USER",
+              "SMTP_PASS",
+              "SMTP_PORT",
+              "KIT_API_KEY"
+          ]:
               print(f"{ok(k)} {k}")
           PY
 
+      # ✅ CRITICAL: this is what was missing
       - name: Run report
         env:
           BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
@@ -55,8 +67,8 @@ jobs:
           TO_EMAIL: ${{ secrets.TO_EMAIL }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
-          # IMPORTANT: do NOT pass SMTP_HOST unless you actually created that secret.
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          KIT_API_KEY: ${{ secrets.KIT_API_KEY }}
         run: |
           python report.py
           echo "----- output directory listing -----"
