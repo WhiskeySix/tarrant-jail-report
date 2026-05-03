@@ -543,37 +543,6 @@ def send_email(subject: str, html_body: str):
         print(f"FATAL: Email failed: {e}")
 
 # ---------------------------------------------------------------------------
-# Kit Broadcast
-# ---------------------------------------------------------------------------
-
-def send_kit_broadcast(subject: str, html_body: str):
-    KIT_API_KEY = os.getenv("KIT_API_KEY", "").strip()
-    if not KIT_API_KEY:
-        print("WARNING: KIT_API_KEY not set. Skipping Kit broadcast.")
-        return
-
-    print("Sending Kit broadcast...")
-    url = "https://api.kit.com/v4/broadcasts"
-    headers = {
-        "Content-Type": "application/json",
-        "X-Kit-Api-Key": KIT_API_KEY,
-    }
-    payload = {
-        "broadcast": {
-            "subject": subject,
-            "content": html_body,
-            "email_layout_template": "none",
-            "published": True,
-        }
-    }
-    try:
-        r = requests.post(url, json=payload, headers=headers, timeout=30)
-        r.raise_for_status()
-        print(f"Kit broadcast sent. Status: {r.status_code}")
-    except Exception as e:
-        print(f"ERROR: Kit broadcast failed: {e}")
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -608,12 +577,10 @@ async def main():
     }
 
     html_content = render_html(template_data)
+    await generate_pdf_from_html(html_content)
 
     subject = f"Tarrant County Jail Report — {report_date_str}"
     send_email(subject, html_content)
-    send_kit_broadcast(subject, html_content)
-
-    await generate_pdf_from_html(html_content)
 
     print("--- Done ---")
 
