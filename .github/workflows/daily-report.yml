@@ -57,7 +57,6 @@ jobs:
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           # IMPORTANT: do NOT pass SMTP_HOST unless you actually created that secret.
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          KIT_API_KEY: ${{ secrets.KIT_API_KEY }}
         run: |
           python report.py
           echo "----- output directory listing -----"
