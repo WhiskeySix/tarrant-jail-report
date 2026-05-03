@@ -655,7 +655,7 @@ async def main():
     create_kit_broadcast(
         subject=subject,
         html_body=html_content,
-        preview_text=f"Daily Tarrant County Jail Report for {report_date_str}",
+        preview_text=f"Arrests booked on {arrests_date_str}",
     )
 
     print("--- Done ---")
