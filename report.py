@@ -41,6 +41,10 @@ TO_EMAIL = os.getenv("TO_EMAIL", "").strip()
 SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASS = os.getenv("SMTP_PASS", "").strip()
 
+# Kit API V4 — creates a draft broadcast in Kit
+KIT_API_KEY = os.getenv("KIT_API_KEY", "").strip()
+KIT_EMAIL_TEMPLATE_ID = os.getenv("KIT_EMAIL_TEMPLATE_ID", "").strip()
+
 # Defaults if not set as secrets
 SMTP_HOST = (os.getenv("SMTP_HOST", "smtp.gmail.com") or "smtp.gmail.com").strip()
 if not SMTP_HOST:
@@ -474,6 +478,7 @@ def render_html(data: dict) -> str:
 
 async def generate_pdf_from_html(html_content: str):
     print("Generating PDF from HTML...")
+    browser = None
     try:
         browser = await launch(
             headless=True,
@@ -487,7 +492,6 @@ async def generate_pdf_from_html(html_content: str):
             "printBackground": True,
             "margin": {"top": "0.5in", "right": "0.5in", "bottom": "0.5in", "left": "0.5in"},
         })
-        await browser.close()
 
         print("PDF exists?", os.path.exists(PDF_OUTPUT_PATH))
         if os.path.exists(PDF_OUTPUT_PATH):
@@ -496,6 +500,12 @@ async def generate_pdf_from_html(html_content: str):
                 print("WARNING: PDF size is 0 bytes.")
     except Exception as e:
         print(f"ERROR: PDF generation failed: {e}")
+    finally:
+        if browser:
+            try:
+                await browser.close()
+            except Exception as close_error:
+                print(f"WARNING: Browser close failed: {close_error}")
 
 # ---------------------------------------------------------------------------
 # Email (HTML body + PDF attachment)
@@ -543,6 +553,61 @@ def send_email(subject: str, html_body: str):
         print(f"FATAL: Email failed: {e}")
 
 # ---------------------------------------------------------------------------
+# Kit Broadcast Draft
+# ---------------------------------------------------------------------------
+
+def create_kit_broadcast(subject: str, html_body: str, preview_text: str):
+    """
+    Creates a DRAFT broadcast in Kit using API V4.
+    It does not send automatically. You review/send inside Kit.
+    """
+    if not KIT_API_KEY:
+        print("WARNING: Missing KIT_API_KEY. Skipping Kit broadcast draft.")
+        return
+
+    payload = {
+        "subject": subject,
+        "preview_text": preview_text,
+        "description": subject,
+        "content": html_body,
+        "public": False,
+        "send_at": None,
+        "subscriber_filter": [
+            {
+                "all": [
+                    {"type": "all_subscribers"}
+                ]
+            }
+        ],
+    }
+
+    if KIT_EMAIL_TEMPLATE_ID:
+        try:
+            payload["email_template_id"] = int(KIT_EMAIL_TEMPLATE_ID)
+        except ValueError:
+            print(f"WARNING: Invalid KIT_EMAIL_TEMPLATE_ID='{KIT_EMAIL_TEMPLATE_ID}'. Using Kit default template.")
+
+    print("Creating Kit broadcast draft...")
+
+    try:
+        r = requests.post(
+            "https://api.kit.com/v4/broadcasts",
+            headers={
+                "Content-Type": "application/json",
+                "X-Kit-Api-Key": KIT_API_KEY,
+            },
+            json=payload,
+            timeout=60,
+        )
+
+        print("Kit broadcast status:", r.status_code)
+        print("Kit response:", r.text[:1000])
+        r.raise_for_status()
+        print("Kit broadcast draft created.")
+    except Exception as e:
+        print(f"ERROR: Kit broadcast draft failed: {e}")
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -580,9 +645,23 @@ async def main():
     await generate_pdf_from_html(html_content)
 
     subject = f"Tarrant County Jail Report — {report_date_str}"
+
+    # Existing daily email to you
     send_email(subject, html_content)
+
+    # New: create a Kit draft broadcast for all Kit subscribers
+    create_kit_broadcast(
+        subject=subject,
+        html_body=html_content,
+        preview_text=f"Daily Tarrant County Jail Report for {report_date_str}",
+    )
 
     print("--- Done ---")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(main())
+    finally:
+        loop.close()
