@@ -485,7 +485,7 @@ async def generate_pdf_from_html(html_content: str):
             args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
         )
         page = await browser.newPage()
-        await page.setContent(html_content, {"waitUntil": "networkidle0"})
+        await page.setContent(html_content)
         await page.pdf({
             "path": PDF_OUTPUT_PATH,
             "format": "Letter",
@@ -560,10 +560,17 @@ def create_kit_broadcast(subject: str, html_body: str, preview_text: str):
     """
     Creates a DRAFT broadcast in Kit using API V4.
     It does not send automatically. You review/send inside Kit.
+
+    Important:
+    - Do NOT send an empty subscriber_filter.
+    - Do NOT send an "all_subscribers" filter. Kit only accepts segment/tag filters.
+    - If subscriber_filter is omitted, Kit defaults the broadcast to all subscribers.
     """
     if not KIT_API_KEY:
         print("WARNING: Missing KIT_API_KEY. Skipping Kit broadcast draft.")
         return
+
+    print("Creating Kit broadcast draft...")
 
     payload = {
         "subject": subject,
@@ -571,14 +578,10 @@ def create_kit_broadcast(subject: str, html_body: str, preview_text: str):
         "description": subject,
         "content": html_body,
         "public": False,
+        "published_at": datetime.utcnow().isoformat() + "Z",
         "send_at": None,
-        "subscriber_filter": [
-            {
-                "all": [
-                    {"type": "all_subscribers"}
-                ]
-            }
-        ],
+        "thumbnail_alt": None,
+        "thumbnail_url": None,
     }
 
     if KIT_EMAIL_TEMPLATE_ID:
@@ -586,8 +589,6 @@ def create_kit_broadcast(subject: str, html_body: str, preview_text: str):
             payload["email_template_id"] = int(KIT_EMAIL_TEMPLATE_ID)
         except ValueError:
             print(f"WARNING: Invalid KIT_EMAIL_TEMPLATE_ID='{KIT_EMAIL_TEMPLATE_ID}'. Using Kit default template.")
-
-    print("Creating Kit broadcast draft...")
 
     try:
         r = requests.post(
@@ -603,7 +604,8 @@ def create_kit_broadcast(subject: str, html_body: str, preview_text: str):
         print("Kit broadcast status:", r.status_code)
         print("Kit response:", r.text[:1000])
         r.raise_for_status()
-        print("Kit broadcast draft created.")
+        print("Kit broadcast draft created successfully.")
+
     except Exception as e:
         print(f"ERROR: Kit broadcast draft failed: {e}")
 
