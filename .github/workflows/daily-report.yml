@@ -8,9 +8,14 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: daily-jail-report
+  cancel-in-progress: true
+
 jobs:
   run-report:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repo
@@ -45,7 +50,7 @@ jobs:
           echo "----- output directory listing -----"
           ls -la output || true
 
-      - name: Upload output artifacts (always)
+      - name: Upload output artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -56,6 +61,6 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add output/*.html output/*.pdf || true
+          git add output/*.html output/*.pdf output/*.json || true
           git commit -m "Daily report artifacts" || echo "No changes to commit"
           git push || echo "Nothing to push"
