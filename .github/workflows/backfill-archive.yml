@@ -1,0 +1,48 @@
+name: Backfill Jail Report Archive
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backfill-archive:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run initial 14-day archive backfill
+        env:
+          BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
+        run: |
+          python archive_reports.py --mode initial_14
+          echo "----- archive directory listing -----"
+          find output/archive -maxdepth 4 -type f | sort
+
+      - name: Upload archive artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: initial-14-day-archive
+          path: output/archive/
+
+      - name: Commit archive files
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add output/archive/ || true
+          git commit -m "Initial 14-day jail report archive" || echo "No changes to commit"
+          git push || echo "Nothing to push"
