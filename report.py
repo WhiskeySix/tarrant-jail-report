@@ -1,13 +1,15 @@
 """
-Tarrant County Daily Jail Report (HTML + PDF + Email + Commit artifacts)
+Tarrant County Daily Jail Report (HTML + PDF + Email + Kit Draft + Base44 Sync)
 
 - Fetches latest booked-in PDF from Tarrant County CJ reports
-- Parses records (preserves original parsing logic)
-- Calculates stats (total bookings, top charge, charge mix, city breakdown)
-- Renders HTML via template file (daily_report_template.html)
-- Generates a PDF from HTML using Pyppeteer (bundled Chromium)
-- Writes artifacts into /output
-- Emails HTML body + attaches PDF
+- Parses booking records
+- Calculates stats
+- Renders HTML via daily_report_template.html
+- Generates PDF from HTML using Pyppeteer
+- Writes HTML/PDF/JSON artifacts into /output
+- Emails HTML body + attaches PDF to personal email
+- Creates a DRAFT broadcast in Kit for manual review/send
+- Sends structured report JSON to Base44 for website display
 """
 
 import os
@@ -42,20 +44,19 @@ TO_EMAIL = os.getenv("TO_EMAIL", "").strip()
 SMTP_USER = os.getenv("SMTP_USER", "").strip()
 SMTP_PASS = os.getenv("SMTP_PASS", "").strip()
 
-# Kit API V4 — creates a draft broadcast in Kit
+# Kit API V4 â creates a draft broadcast in Kit
 KIT_API_KEY = os.getenv("KIT_API_KEY", "").strip()
 KIT_EMAIL_TEMPLATE_ID = os.getenv("KIT_EMAIL_TEMPLATE_ID", "").strip()
 
-# Base44 automation endpoint — receives live report JSON for website display
-BASE44_FUNCTION_URL = os.getenv("BASE44_FUNCTION_URL", "").strip()
+# Base44 automation sync
 BASE44_AUTOMATION_API_KEY = os.getenv("BASE44_AUTOMATION_API_KEY", "").strip()
+BASE44_FUNCTION_URL = os.getenv("BASE44_FUNCTION_URL", "").strip()
 
 # Defaults if not set as secrets
 SMTP_HOST = (os.getenv("SMTP_HOST", "smtp.gmail.com") or "smtp.gmail.com").strip()
 if not SMTP_HOST:
     SMTP_HOST = "smtp.gmail.com"
 
-# ✅ Robust SMTP_PORT parsing (prevents "***" / blank / bad values)
 _raw_port = (os.getenv("SMTP_PORT", "465") or "465").strip()
 try:
     SMTP_PORT = int(_raw_port)
@@ -74,7 +75,7 @@ JSON_OUTPUT_PATH = os.path.join(OUT_DIR, "daily_jail_report.json")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 # ---------------------------------------------------------------------------
-# Parsing patterns (preserved)
+# Parsing patterns
 # ---------------------------------------------------------------------------
 
 NAME_CID_DATE_RE = re.compile(
@@ -100,11 +101,11 @@ JUNK_SUBSTRINGS = [
 ]
 
 CATEGORY_RULES = [
-    ("DWI / Alcohol", ["DWI", "INTOX", "BAC", "DUI", "ALCOHOL", "DRUNK", "INTOXICATED", "PUBLIC INTOX", "OPEN CONT"]),
-    ("Drugs / Possession", ["POSS", "POSS CS", "CONTROLLED SUB", "CS", "DRUG", "NARC", "MARIJ", "METH", "COCAINE", "HEROIN", "PARAPH"]),
-    ("Family Violence / Assault", ["FAMILY", "FV", "ASSAULT", "AGG ASSAULT", "BODILY INJURY", "CHOKE", "STRANG", "DOMESTIC"]),
-    ("Theft / Fraud", ["THEFT", "BURGL", "ROBB", "FRAUD", "FORGERY", "IDENTITY", "STOLEN", "SHOPLIFT"]),
-    ("Weapons", ["WEAPON", "FIREARM", "GUN", "UCW", "UNL CARRYING"]),
+    ("DWI / Alcohol", ["DWI", "DUI", "INTOX", "INTOXICATED", "BAC", "ALCOHOL", "DRUNK", "PUBLIC INTOX", "OPEN CONT", "OPEN CONTAINER"]),
+    ("Drugs / Possession", ["POSS", "POSSESSION", "POSS CS", "CONTROLLED SUB", "CS", "DRUG", "NARC", "MARIJ", "METH", "COCAINE", "HEROIN", "PARAPH"]),
+    ("Family Violence / Assault", ["FAMILY", "FV", "ASSAULT", "AGG ASSAULT", "BODILY INJURY", "CHOKE", "STRANG", "DOMESTIC", "FAM/HOUSE"]),
+    ("Theft / Fraud", ["THEFT", "BURGL", "BURGLARY", "ROBB", "ROBBERY", "FRAUD", "FORGERY", "IDENTITY", "STOLEN", "SHOPLIFT"]),
+    ("Weapons", ["WEAPON", "FIREARM", "GUN", "UCW", "UNL CARRYING", "UNLAWFUL CARRY"]),
     ("Evading / Resisting", ["EVADING", "RESIST", "INTERFER", "OBSTRUCT", "FLEE"]),
     ("Warrants / Court / Bond", ["WARRANT", "FTA", "FAIL TO APPEAR", "BOND", "PAROLE", "PROBATION"]),
 ]
@@ -118,11 +119,13 @@ EMBEDDED_BOOKING_RE = re.compile(r"(\d{2}-\d{7})")
 def normalize_ws(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
 
+
 def is_junk_line(ln: str) -> bool:
     up = (ln or "").strip().upper()
     if not up:
         return True
     return any(s in up for s in JUNK_SUBSTRINGS)
+
 
 def looks_like_address(ln: str) -> bool:
     up = (ln or "").strip().upper()
@@ -134,6 +137,7 @@ def looks_like_address(ln: str) -> bool:
         return True
     return STREET_SUFFIX_RE.search(up) is not None
 
+
 def clean_charge_line(raw: str) -> str:
     if not raw:
         return ""
@@ -144,6 +148,7 @@ def clean_charge_line(raw: str) -> str:
     s = TRAILING_CITY_TX_ZIP_RE.sub("", s).strip()
     s = re.sub(r"\s+TX\s+\d{5}(?:-\d{4})?\s*$", "", s).strip()
     return s
+
 
 def extract_city_from_addr_lines(addr_lines: list[str]) -> str:
     for ln in addr_lines:
@@ -165,6 +170,7 @@ def extract_city_from_addr_lines(addr_lines: list[str]) -> str:
         if m3:
             return normalize_ws(m3.group(1).title())
     return "Unknown"
+
 
 def apply_content_line(rec: dict, ln: str) -> None:
     rec.setdefault("addr_lines", [])
@@ -200,6 +206,7 @@ def apply_content_line(rec: dict, ln: str) -> None:
     else:
         rec["charges"][-1] = normalize_ws(rec["charges"][-1] + " " + cleaned)
 
+
 def finalize_record(rec: dict) -> dict:
     cleaned_charges = [clean_charge_line(c) for c in rec.get("charges", []) if c]
     deduped = []
@@ -216,6 +223,21 @@ def finalize_record(rec: dict) -> dict:
         "description": ", ".join(deduped),
     }
 
+
+def pct_to_number(pct_value) -> int:
+    if isinstance(pct_value, (int, float)):
+        return int(round(pct_value))
+    return int(str(pct_value).replace("%", "").strip() or 0)
+
+
+def infer_charge_category(charges: str) -> str:
+    charge_text = re.sub(r"[^A-Z0-9 /<>=-]", " ", (charges or "").upper())
+    charge_text = normalize_ws(charge_text)
+    for category, keywords in CATEGORY_RULES:
+        if any(keyword in charge_text for keyword in keywords):
+            return category
+    return "Other / Unknown"
+
 # ---------------------------------------------------------------------------
 # Fetch + Parse
 # ---------------------------------------------------------------------------
@@ -226,6 +248,7 @@ def fetch_pdf(url: str) -> bytes:
     r.raise_for_status()
     print("PDF fetched.")
     return r.content
+
 
 def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     records: list[dict] = []
@@ -291,6 +314,7 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     print(f"Parsed {len(records)} booking records.")
     return report_dt, records
 
+
 def fix_embedded_booking_numbers(records: list[dict]) -> list[dict]:
     print("Fixing embedded booking numbers in names (if any)...")
     fixed = []
@@ -334,11 +358,7 @@ def analyze_stats(records: list[dict]) -> dict:
     categorized_charges = [(rec.get("description") or "").upper() for rec in records]
     charge_mix_counts = Counter()
     for charge_text in categorized_charges:
-        found_cat = "Other / Unknown"
-        for category, keywords in CATEGORY_RULES:
-            if any(keyword in charge_text for keyword in keywords):
-                found_cat = category
-                break
+        found_cat = infer_charge_category(charge_text)
         charge_mix_counts[found_cat] += 1
 
     charge_mix = []
@@ -353,7 +373,6 @@ def analyze_stats(records: list[dict]) -> dict:
 
     charge_mix.sort(key=lambda x: x[2], reverse=True)
 
-    # City breakdown
     cities = [rec.get("city", "Unknown") for rec in records]
     city_counts = Counter(c for c in cities if c != "Unknown")
     top_cities_raw = city_counts.most_common(9)
@@ -364,7 +383,6 @@ def analyze_stats(records: list[dict]) -> dict:
     if unknown_count > 0:
         top_cities.append(("All Other Cities", f"{round((unknown_count / total_bookings) * 100)}%", unknown_count))
 
-    # Charge bars
     charge_bars = []
     for cat, pct_str, count in charge_mix:
         label = {
@@ -478,33 +496,49 @@ def render_html(data: dict) -> str:
     return template
 
 # ---------------------------------------------------------------------------
-# PDF generation (reliable on GitHub Actions)
+# PDF generation
 # ---------------------------------------------------------------------------
 
 async def generate_pdf_from_html(html_content: str):
     print("Generating PDF from HTML...")
     browser = None
+
     try:
         browser = await launch(
             headless=True,
-            args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+            args=[
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+            ],
+            handleSIGINT=False,
+            handleSIGTERM=False,
+            handleSIGHUP=False,
         )
+
         page = await browser.newPage()
         await page.setContent(html_content)
+
         await page.pdf({
             "path": PDF_OUTPUT_PATH,
             "format": "Letter",
             "printBackground": True,
-            "margin": {"top": "0.5in", "right": "0.5in", "bottom": "0.5in", "left": "0.5in"},
+            "margin": {
+                "top": "0.5in",
+                "right": "0.5in",
+                "bottom": "0.5in",
+                "left": "0.5in",
+            },
         })
 
         print("PDF exists?", os.path.exists(PDF_OUTPUT_PATH))
         if os.path.exists(PDF_OUTPUT_PATH):
             print("PDF size:", os.path.getsize(PDF_OUTPUT_PATH), "bytes")
-            if os.path.getsize(PDF_OUTPUT_PATH) == 0:
-                print("WARNING: PDF size is 0 bytes.")
+
     except Exception as e:
         print(f"ERROR: PDF generation failed: {e}")
+
     finally:
         if browser:
             try:
@@ -513,7 +547,7 @@ async def generate_pdf_from_html(html_content: str):
                 print(f"WARNING: Browser close failed: {close_error}")
 
 # ---------------------------------------------------------------------------
-# Email (HTML body + PDF attachment)
+# Email
 # ---------------------------------------------------------------------------
 
 def send_email(subject: str, html_body: str):
@@ -523,19 +557,16 @@ def send_email(subject: str, html_body: str):
 
     print(f"Sending email to {TO_EMAIL} ...")
 
-    # ✅ Outer must be "mixed" to reliably include attachments
     msg = MIMEMultipart("mixed")
     msg["Subject"] = subject
     msg["From"] = SMTP_USER
     msg["To"] = TO_EMAIL
 
-    # ✅ Nest HTML in "alternative"
     alt = MIMEMultipart("alternative")
     alt.attach(MIMEText("Your email client does not support HTML.", "plain", "utf-8"))
     alt.attach(MIMEText(html_body, "html", "utf-8"))
     msg.attach(alt)
 
-    # Attach PDF if present
     if os.path.exists(PDF_OUTPUT_PATH):
         with open(PDF_OUTPUT_PATH, "rb") as f:
             pdf_attachment = MIMEApplication(f.read(), _subtype="pdf")
@@ -563,13 +594,9 @@ def send_email(subject: str, html_body: str):
 
 def create_kit_broadcast(subject: str, html_body: str, preview_text: str):
     """
-    Creates a DRAFT broadcast in Kit using API V4.
-    It does not send automatically. You review/send inside Kit.
-
-    Important:
-    - Do NOT send an empty subscriber_filter.
-    - Do NOT send an "all_subscribers" filter. Kit only accepts segment/tag filters.
-    - If subscriber_filter is omitted, Kit defaults the broadcast to all subscribers.
+    Creates a DRAFT broadcast in Kit.
+    This does NOT send automatically.
+    You review/send inside Kit.
     """
     if not KIT_API_KEY:
         print("WARNING: Missing KIT_API_KEY. Skipping Kit broadcast draft.")
@@ -583,10 +610,7 @@ def create_kit_broadcast(subject: str, html_body: str, preview_text: str):
         "description": subject,
         "content": html_body,
         "public": False,
-        "published_at": datetime.utcnow().isoformat() + "Z",
         "send_at": None,
-        "thumbnail_alt": None,
-        "thumbnail_url": None,
     }
 
     if KIT_EMAIL_TEMPLATE_ID:
@@ -596,7 +620,7 @@ def create_kit_broadcast(subject: str, html_body: str, preview_text: str):
             print(f"WARNING: Invalid KIT_EMAIL_TEMPLATE_ID='{KIT_EMAIL_TEMPLATE_ID}'. Using Kit default template.")
 
     try:
-        r = requests.post(
+        response = requests.post(
             "https://api.kit.com/v4/broadcasts",
             headers={
                 "Content-Type": "application/json",
@@ -606,70 +630,17 @@ def create_kit_broadcast(subject: str, html_body: str, preview_text: str):
             timeout=60,
         )
 
-        print("Kit broadcast status:", r.status_code)
-        print("Kit response:", r.text[:1000])
-        r.raise_for_status()
+        print("Kit broadcast status:", response.status_code)
+        print("Kit response:", response.text[:1000])
+        response.raise_for_status()
         print("Kit broadcast draft created successfully.")
 
     except Exception as e:
         print(f"ERROR: Kit broadcast draft failed: {e}")
 
-
 # ---------------------------------------------------------------------------
-# Base44 Live Report Sync
+# Base44 Sync
 # ---------------------------------------------------------------------------
-
-def percent_to_number(value) -> int:
-    """Convert values like '24%' or 24 into an integer percentage."""
-    if isinstance(value, (int, float)):
-        return int(round(value))
-    if value is None:
-        return 0
-    cleaned = str(value).replace("%", "").strip()
-    try:
-        return int(round(float(cleaned))) if cleaned else 0
-    except ValueError:
-        return 0
-
-
-def build_base44_payload(report_date_str: str, arrests_date_str: str, stats: dict, records: list[dict]) -> dict:
-    """Build JSON that matches the Base44 JailReport schema exactly."""
-    sorted_records = sorted(records, key=lambda x: x.get("name", ""))
-
-    return {
-        "report_date": report_date_str,
-        "arrests_date": arrests_date_str,
-        "total_bookings": int(stats.get("total_bookings", 0) or 0),
-        "top_charge": stats.get("top_charge", "N/A"),
-        "charge_mix": [
-            {
-                "label": label,
-                "pct": percent_to_number(pct_str),
-                "count": int(count),
-            }
-            for label, pct_str, count in stats.get("charge_mix", [])
-        ],
-        "cities": [
-            {
-                "city": city,
-                "pct": percent_to_number(pct_str),
-                "count": int(count),
-            }
-            for city, pct_str, count in stats.get("cities", [])
-        ],
-        "bookings": [
-            {
-                "num": i,
-                "name": rec.get("name", ""),
-                "date": rec.get("book_in_date", ""),
-                "charges": rec.get("description", ""),
-                "city": rec.get("city", "Unknown"),
-            }
-            for i, rec in enumerate(sorted_records, 1)
-        ],
-        "is_active": True,
-    }
-
 
 def send_report_to_base44(report_payload: dict):
     if not BASE44_FUNCTION_URL:
@@ -683,7 +654,7 @@ def send_report_to_base44(report_payload: dict):
     print("Sending latest report data to Base44...")
 
     try:
-        r = requests.post(
+        response = requests.post(
             BASE44_FUNCTION_URL,
             headers={
                 "Content-Type": "application/json",
@@ -693,13 +664,72 @@ def send_report_to_base44(report_payload: dict):
             timeout=60,
         )
 
-        print("Base44 sync status:", r.status_code)
-        print("Base44 response:", r.text[:1000])
-        r.raise_for_status()
+        print("Base44 sync status:", response.status_code)
+        print("Base44 response:", response.text[:1000])
+        response.raise_for_status()
         print("Base44 report sync completed successfully.")
 
     except Exception as e:
         print(f"ERROR: Base44 report sync failed: {e}")
+
+# ---------------------------------------------------------------------------
+# Payload Builder
+# ---------------------------------------------------------------------------
+
+def build_structured_payload(
+    report_date_str: str,
+    arrests_date_str: str,
+    report_date_display: str,
+    stats: dict,
+    sorted_records: list[dict],
+) -> dict:
+    bookings = []
+    for i, rec in enumerate(sorted_records, 1):
+        charges = rec.get("description", "")
+        bookings.append({
+            "num": i,
+            "name": rec.get("name", ""),
+            "date": rec.get("book_in_date", arrests_date_str),
+            "charges": charges,
+            "city": rec.get("city", "Unknown"),
+            "charge_category": infer_charge_category(charges),
+        })
+
+    charge_mix = []
+    for label, pct_str, count in stats.get("charge_mix", []):
+        charge_mix.append({
+            "label": label,
+            "pct": pct_to_number(pct_str),
+            "count": count,
+        })
+
+    cities = []
+    for city, pct_str, count in stats.get("cities", []):
+        cities.append({
+            "city": city,
+            "pct": pct_to_number(pct_str),
+            "count": count,
+        })
+
+    payload = {
+        "report_date": report_date_str,
+        "report_date_display": report_date_display,
+        "arrests_date": arrests_date_str,
+        "total_bookings": stats.get("total_bookings", 0),
+        "top_charge": stats.get("top_charge", "N/A"),
+        "charge_mix": charge_mix,
+        "cities": cities,
+        "bookings": bookings,
+        "is_active": True,
+        "source": "Tarrant County CJ Reports",
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+    with open(JSON_OUTPUT_PATH, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    print(f"Saved JSON to {JSON_OUTPUT_PATH}")
+
+    return payload
 
 # ---------------------------------------------------------------------------
 # Main
@@ -716,7 +746,6 @@ async def main():
 
     stats = analyze_stats(records)
 
-    # Use platform-safe date formatting (Linux runner supports %-m; fallback just in case)
     def fmt(dt: datetime, fmt_str: str, fallback: str):
         try:
             return dt.strftime(fmt_str)
@@ -727,44 +756,44 @@ async def main():
     arrests_date_str = fmt(report_dt - timedelta(days=1), "%-m/%-d/%Y", "%m/%d/%Y")
     report_date_display = fmt(report_dt, "%A, %B %-d, %Y", "%A, %B %d, %Y")
 
+    sorted_records = sorted(records, key=lambda x: x.get("name", ""))
+
     template_data = {
         **stats,
         "report_date": report_date_str,
         "arrests_date": arrests_date_str,
         "report_date_display": report_date_display,
-        "bookings": sorted(records, key=lambda x: x.get("name", "")),
+        "bookings": sorted_records,
     }
-
-    base44_payload = build_base44_payload(
-        report_date_str=report_date_str,
-        arrests_date_str=arrests_date_str,
-        stats=stats,
-        records=records,
-    )
-
-    with open(JSON_OUTPUT_PATH, "w", encoding="utf-8") as f:
-        json.dump(base44_payload, f, ensure_ascii=False, indent=2)
-    print(f"Saved JSON to {JSON_OUTPUT_PATH}")
 
     html_content = render_html(template_data)
     await generate_pdf_from_html(html_content)
 
-    subject = f"Tarrant County Jail Report — Arrests for {arrests_date_str}"
+    report_payload = build_structured_payload(
+        report_date_str=report_date_str,
+        arrests_date_str=arrests_date_str,
+        report_date_display=report_date_display,
+        stats=stats,
+        sorted_records=sorted_records,
+    )
+
+    subject = f"Tarrant County Jail Report â Arrests for {arrests_date_str}"
 
     # Existing daily email to you
     send_email(subject, html_content)
 
-    # New: create a Kit draft broadcast for all Kit subscribers
+    # Kit draft broadcast for manual review/send
     create_kit_broadcast(
         subject=subject,
         html_body=html_content,
         preview_text=f"Arrests booked on {arrests_date_str}",
     )
 
-    # Send live JSON data to Base44 so the website can update automatically
-    send_report_to_base44(base44_payload)
+    # Base44 website/database sync
+    send_report_to_base44(report_payload)
 
     print("--- Done ---")
+
 
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
