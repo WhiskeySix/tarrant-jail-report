@@ -777,7 +777,7 @@ async def main():
         sorted_records=sorted_records,
     )
 
-    subject = f"Tarrant County Jail Report â Arrests for {arrests_date_str}"
+    subject = f"Tarrant County Jail Report - Arrests for {arrests_date_str}"
 
     # Existing daily email to you
     send_email(subject, html_content)
