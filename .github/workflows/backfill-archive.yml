@@ -6,9 +6,14 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: backfill-jail-report-archive
+  cancel-in-progress: false
+
 jobs:
   backfill-archive:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repo
@@ -24,25 +29,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run initial 14-day archive backfill
+      - name: Run 14-day archive backfill
         env:
           BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
         run: |
-          python archive_reports.py --mode initial_14
+          python archive_reports.py --mode backfill
           echo "----- archive directory listing -----"
-          find output/archive -maxdepth 4 -type f | sort
+          find output/archive -maxdepth 4 -type f | sort || true
 
       - name: Upload archive artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: initial-14-day-archive
+          name: jail-report-archive-backfill
           path: output/archive/
 
       - name: Commit archive files
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add output/archive/ || true
+          git add output/archive/**/*.json output/archive/*.json || true
           git commit -m "Initial 14-day jail report archive" || echo "No changes to commit"
           git push || echo "Nothing to push"
