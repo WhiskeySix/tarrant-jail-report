@@ -3,15 +3,19 @@ name: Daily Jail Report Archive
 on:
   workflow_dispatch:
   schedule:
-    # Runs after the main daily report job. 14:15 UTC = 8:15 AM CST / 9:15 AM CDT.
-    - cron: "15 14 * * *"
+    - cron: "45 13 * * *"
 
 permissions:
   contents: write
 
+concurrency:
+  group: daily-jail-report-archive
+  cancel-in-progress: true
+
 jobs:
   daily-archive:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout repo
@@ -27,25 +31,25 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Archive latest report JSON
+      - name: Save Day 01 archive report
         env:
           BOOKED_BASE_URL: ${{ secrets.BOOKED_BASE_URL }}
         run: |
           python archive_reports.py --mode daily
           echo "----- archive directory listing -----"
-          find output/archive -maxdepth 4 -type f | sort
+          find output/archive -maxdepth 4 -type f | sort || true
 
       - name: Upload archive artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: daily-report-archive
+          name: jail-report-daily-archive
           path: output/archive/
 
       - name: Commit archive files
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
-          git add output/archive/ || true
-          git commit -m "Archive latest jail report JSON" || echo "No changes to commit"
+          git add output/archive/**/*.json output/archive/*.json || true
+          git commit -m "Daily jail report archive" || echo "No changes to commit"
           git push || echo "Nothing to push"
