@@ -1,0 +1,133 @@
+{
+  "archive_name": "initial_14_day_backfill",
+  "description": "One-time initial scrape of Tarrant County Daily Booked In Reports day 01 through day 14.",
+  "created_at_utc": "2026-05-05T03:47:57.778255+00:00",
+  "reports": [
+    {
+      "day": 1,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/01.PDF",
+      "report_date": "5/4/2026",
+      "arrests_date": "5/3/2026",
+      "total_bookings": 113,
+      "path": "output/archive/reports/2026-05-03/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 2,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/02.PDF",
+      "report_date": "5/3/2026",
+      "arrests_date": "5/2/2026",
+      "total_bookings": 123,
+      "path": "output/archive/reports/2026-05-02/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 3,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/03.PDF",
+      "report_date": "5/2/2026",
+      "arrests_date": "5/1/2026",
+      "total_bookings": 150,
+      "path": "output/archive/reports/2026-05-01/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 4,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/04.PDF",
+      "report_date": "5/1/2026",
+      "arrests_date": "4/30/2026",
+      "total_bookings": 147,
+      "path": "output/archive/reports/2026-04-30/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 5,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/05.PDF",
+      "report_date": "4/30/2026",
+      "arrests_date": "4/29/2026",
+      "total_bookings": 136,
+      "path": "output/archive/reports/2026-04-29/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 6,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/06.PDF",
+      "report_date": "4/29/2026",
+      "arrests_date": "4/28/2026",
+      "total_bookings": 146,
+      "path": "output/archive/reports/2026-04-28/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 7,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/07.PDF",
+      "report_date": "4/28/2026",
+      "arrests_date": "4/27/2026",
+      "total_bookings": 114,
+      "path": "output/archive/reports/2026-04-27/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 8,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/08.PDF",
+      "report_date": "4/27/2026",
+      "arrests_date": "4/26/2026",
+      "total_bookings": 116,
+      "path": "output/archive/reports/2026-04-26/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 9,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/09.PDF",
+      "report_date": "4/26/2026",
+      "arrests_date": "4/25/2026",
+      "total_bookings": 122,
+      "path": "output/archive/reports/2026-04-25/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 10,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/10.PDF",
+      "report_date": "4/25/2026",
+      "arrests_date": "4/24/2026",
+      "total_bookings": 152,
+      "path": "output/archive/reports/2026-04-24/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 11,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/11.PDF",
+      "report_date": "4/24/2026",
+      "arrests_date": "4/23/2026",
+      "total_bookings": 150,
+      "path": "output/archive/reports/2026-04-23/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 12,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/12.PDF",
+      "report_date": "4/23/2026",
+      "arrests_date": "4/22/2026",
+      "total_bookings": 143,
+      "path": "output/archive/reports/2026-04-22/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 13,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/13.PDF",
+      "report_date": "4/22/2026",
+      "arrests_date": "4/21/2026",
+      "total_bookings": 137,
+      "path": "output/archive/reports/2026-04-21/report.json",
+      "status": "saved"
+    },
+    {
+      "day": 14,
+      "source_url": "https://cjreports.tarrantcounty.com/Reports/JailedInmates/FinalPDF/14.PDF",
+      "report_date": "4/21/2026",
+      "arrests_date": "4/20/2026",
+      "total_bookings": 148,
+      "path": "output/archive/reports/2026-04-20/report.json",
+      "status": "saved"
+    }
+  ]
+}
