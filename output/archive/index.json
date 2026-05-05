@@ -1,146 +1,107 @@
-{
-  "updated_at_utc": "2026-05-05T03:48:13.679493+00:00",
-  "count": 14,
-  "reports": [
-    {
-      "arrests_date": "5/3/2026",
-      "report_date": "5/4/2026",
-      "arrests_date_iso": "2026-05-03",
-      "report_date_iso": "2026-05-04",
-      "total_bookings": 113,
-      "top_charge": "DRIVING WHILE INTOXICATED",
-      "path": "output/archive/reports/2026-05-03/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "5/2/2026",
-      "report_date": "5/3/2026",
-      "arrests_date_iso": "2026-05-02",
-      "report_date_iso": "2026-05-03",
-      "total_bookings": 123,
-      "top_charge": "POSS CS PG 1/1-B <1G",
-      "path": "output/archive/reports/2026-05-02/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "5/1/2026",
-      "report_date": "5/2/2026",
-      "arrests_date_iso": "2026-05-01",
-      "report_date_iso": "2026-05-02",
-      "total_bookings": 150,
-      "top_charge": "POSS CS PG 1/1-B <1G",
-      "path": "output/archive/reports/2026-05-01/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "4/30/2026",
-      "report_date": "5/1/2026",
-      "arrests_date_iso": "2026-04-30",
-      "report_date_iso": "2026-05-01",
-      "total_bookings": 147,
-      "top_charge": "POSS CS PG 1/1-B <1G",
-      "path": "output/archive/reports/2026-04-30/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "4/29/2026",
-      "report_date": "4/30/2026",
-      "arrests_date_iso": "2026-04-29",
-      "report_date_iso": "2026-04-30",
-      "total_bookings": 136,
-      "top_charge": "CRIMINAL TRESPASS",
-      "path": "output/archive/reports/2026-04-29/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "4/28/2026",
-      "report_date": "4/29/2026",
-      "arrests_date_iso": "2026-04-28",
-      "report_date_iso": "2026-04-29",
-      "total_bookings": 146,
-      "top_charge": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "path": "output/archive/reports/2026-04-28/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "4/27/2026",
-      "report_date": "4/28/2026",
-      "arrests_date_iso": "2026-04-27",
-      "report_date_iso": "2026-04-28",
-      "total_bookings": 114,
-      "top_charge": "DRIVING WHILE INTOXICATED",
-      "path": "output/archive/reports/2026-04-27/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "4/26/2026",
-      "report_date": "4/27/2026",
-      "arrests_date_iso": "2026-04-26",
-      "report_date_iso": "2026-04-27",
-      "total_bookings": 116,
-      "top_charge": "DRIVING WHILE INTOXICATED",
-      "path": "output/archive/reports/2026-04-26/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "4/25/2026",
-      "report_date": "4/26/2026",
-      "arrests_date_iso": "2026-04-25",
-      "report_date_iso": "2026-04-26",
-      "total_bookings": 122,
-      "top_charge": "DRIVING WHILE INTOXICATED",
-      "path": "output/archive/reports/2026-04-25/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "4/24/2026",
-      "report_date": "4/25/2026",
-      "arrests_date_iso": "2026-04-24",
-      "report_date_iso": "2026-04-25",
-      "total_bookings": 152,
-      "top_charge": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "path": "output/archive/reports/2026-04-24/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "4/23/2026",
-      "report_date": "4/24/2026",
-      "arrests_date_iso": "2026-04-23",
-      "report_date_iso": "2026-04-24",
-      "total_bookings": 150,
-      "top_charge": "THEFT PROP >=$100<$750",
-      "path": "output/archive/reports/2026-04-23/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "4/22/2026",
-      "report_date": "4/23/2026",
-      "arrests_date_iso": "2026-04-22",
-      "report_date_iso": "2026-04-23",
-      "total_bookings": 143,
-      "top_charge": "CRIMINAL TRESPASS",
-      "path": "output/archive/reports/2026-04-22/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "4/21/2026",
-      "report_date": "4/22/2026",
-      "arrests_date_iso": "2026-04-21",
-      "report_date_iso": "2026-04-22",
-      "total_bookings": 137,
-      "top_charge": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "path": "output/archive/reports/2026-04-21/report.json",
-      "archive_source": "initial_14_day_backfill"
-    },
-    {
-      "arrests_date": "4/20/2026",
-      "report_date": "4/21/2026",
-      "arrests_date_iso": "2026-04-20",
-      "report_date_iso": "2026-04-21",
-      "total_bookings": 148,
-      "top_charge": "DRIVING WHILE INTOXICATED",
-      "path": "output/archive/reports/2026-04-20/report.json",
-      "archive_source": "initial_14_day_backfill"
-    }
-  ]
-}
+[
+  {
+    "arrests_date": "5/4/2026",
+    "report_date": "5/5/2026",
+    "total_bookings": 136,
+    "top_charge": "DRIVING WHILE INTOXICATED/OPEN ALCH CONTAINER",
+    "path": "output/archive/reports/2026-05-04/report.json"
+  },
+  {
+    "arrests_date": "5/3/2026",
+    "report_date": "5/4/2026",
+    "total_bookings": 113,
+    "top_charge": "DRIVING WHILE INTOXICATED",
+    "path": "output/archive/reports/2026-05-03/report.json"
+  },
+  {
+    "arrests_date": "5/2/2026",
+    "report_date": "5/3/2026",
+    "total_bookings": 123,
+    "top_charge": "POSS CS PG 1/1-B <1G",
+    "path": "output/archive/reports/2026-05-02/report.json"
+  },
+  {
+    "arrests_date": "5/1/2026",
+    "report_date": "5/2/2026",
+    "total_bookings": 150,
+    "top_charge": "POSS CS PG 1/1-B <1G",
+    "path": "output/archive/reports/2026-05-01/report.json"
+  },
+  {
+    "arrests_date": "4/30/2026",
+    "report_date": "5/1/2026",
+    "total_bookings": 147,
+    "top_charge": "POSS CS PG 1/1-B <1G",
+    "path": "output/archive/reports/2026-04-30/report.json"
+  },
+  {
+    "arrests_date": "4/29/2026",
+    "report_date": "4/30/2026",
+    "total_bookings": 136,
+    "top_charge": "CRIMINAL TRESPASS",
+    "path": "output/archive/reports/2026-04-29/report.json"
+  },
+  {
+    "arrests_date": "4/28/2026",
+    "report_date": "4/29/2026",
+    "total_bookings": 146,
+    "top_charge": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+    "path": "output/archive/reports/2026-04-28/report.json"
+  },
+  {
+    "arrests_date": "4/27/2026",
+    "report_date": "4/28/2026",
+    "total_bookings": 114,
+    "top_charge": "DRIVING WHILE INTOXICATED",
+    "path": "output/archive/reports/2026-04-27/report.json"
+  },
+  {
+    "arrests_date": "4/26/2026",
+    "report_date": "4/27/2026",
+    "total_bookings": 116,
+    "top_charge": "DRIVING WHILE INTOXICATED",
+    "path": "output/archive/reports/2026-04-26/report.json"
+  },
+  {
+    "arrests_date": "4/25/2026",
+    "report_date": "4/26/2026",
+    "total_bookings": 122,
+    "top_charge": "DRIVING WHILE INTOXICATED",
+    "path": "output/archive/reports/2026-04-25/report.json"
+  },
+  {
+    "arrests_date": "4/24/2026",
+    "report_date": "4/25/2026",
+    "total_bookings": 152,
+    "top_charge": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+    "path": "output/archive/reports/2026-04-24/report.json"
+  },
+  {
+    "arrests_date": "4/23/2026",
+    "report_date": "4/24/2026",
+    "total_bookings": 150,
+    "top_charge": "THEFT PROP >=$100<$750",
+    "path": "output/archive/reports/2026-04-23/report.json"
+  },
+  {
+    "arrests_date": "4/22/2026",
+    "report_date": "4/23/2026",
+    "total_bookings": 143,
+    "top_charge": "CRIMINAL TRESPASS",
+    "path": "output/archive/reports/2026-04-22/report.json"
+  },
+  {
+    "arrests_date": "4/21/2026",
+    "report_date": "4/22/2026",
+    "total_bookings": 137,
+    "top_charge": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+    "path": "output/archive/reports/2026-04-21/report.json"
+  },
+  {
+    "arrests_date": "4/20/2026",
+    "report_date": "4/21/2026",
+    "total_bookings": 148,
+    "top_charge": "DRIVING WHILE INTOXICATED",
+    "path": "output/archive/reports/2026-04-20/report.json"
+  }
+]
