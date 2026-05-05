@@ -1,15 +1,17 @@
 """
-Tarrant County Daily Jail Report (HTML + PDF + Email + Kit Draft + Base44 Sync)
+Tarrant County Daily Jail Report
+HTML + PDF + Personal Email + Kit Draft + Base44 Sync
 
+Current flow preserved:
 - Fetches latest booked-in PDF from Tarrant County CJ reports
-- Parses booking records
+- Parses records
 - Calculates stats
-- Renders HTML via daily_report_template.html
-- Generates PDF from HTML using Pyppeteer
-- Writes HTML/PDF/JSON artifacts into /output
-- Emails HTML body + attaches PDF to personal email
-- Creates a DRAFT broadcast in Kit for manual review/send
-- Sends structured report JSON to Base44 for website display
+- Renders full HTML using daily_report_template.html
+- Generates PDF
+- Writes HTML/PDF/JSON into /output
+- Emails full HTML + PDF to personal email
+- Creates mobile-friendly Kit draft broadcast
+- Sends structured report data to Base44
 """
 
 import os
@@ -52,7 +54,13 @@ KIT_EMAIL_TEMPLATE_ID = os.getenv("KIT_EMAIL_TEMPLATE_ID", "").strip()
 BASE44_AUTOMATION_API_KEY = os.getenv("BASE44_AUTOMATION_API_KEY", "").strip()
 BASE44_FUNCTION_URL = os.getenv("BASE44_FUNCTION_URL", "").strip()
 
-# Defaults if not set as secrets
+# Subscriber access URL used inside Kit emails.
+# Base44 should unlock /report when this query param is present.
+REPORT_ACCESS_URL = os.getenv(
+    "REPORT_ACCESS_URL",
+    "https://dailyjailreports.com/report?access=subscriber"
+).strip()
+
 SMTP_HOST = (os.getenv("SMTP_HOST", "smtp.gmail.com") or "smtp.gmail.com").strip()
 if not SMTP_HOST:
     SMTP_HOST = "smtp.gmail.com"
@@ -64,7 +72,6 @@ except ValueError:
     print(f"WARNING: Invalid SMTP_PORT='{_raw_port}'. Falling back to 465.")
     SMTP_PORT = 465
 
-# Template + output paths
 HTML_TEMPLATE_PATH = "daily_report_template.html"
 
 OUT_DIR = "output"
@@ -101,11 +108,11 @@ JUNK_SUBSTRINGS = [
 ]
 
 CATEGORY_RULES = [
-    ("DWI / Alcohol", ["DWI", "DUI", "INTOX", "INTOXICATED", "BAC", "ALCOHOL", "DRUNK", "PUBLIC INTOX", "OPEN CONT", "OPEN CONTAINER"]),
-    ("Drugs / Possession", ["POSS", "POSSESSION", "POSS CS", "CONTROLLED SUB", "CS", "DRUG", "NARC", "MARIJ", "METH", "COCAINE", "HEROIN", "PARAPH"]),
-    ("Family Violence / Assault", ["FAMILY", "FV", "ASSAULT", "AGG ASSAULT", "BODILY INJURY", "CHOKE", "STRANG", "DOMESTIC", "FAM/HOUSE"]),
-    ("Theft / Fraud", ["THEFT", "BURGL", "BURGLARY", "ROBB", "ROBBERY", "FRAUD", "FORGERY", "IDENTITY", "STOLEN", "SHOPLIFT"]),
-    ("Weapons", ["WEAPON", "FIREARM", "GUN", "UCW", "UNL CARRYING", "UNLAWFUL CARRY"]),
+    ("DWI / Alcohol", ["DWI", "INTOX", "BAC", "DUI", "ALCOHOL", "DRUNK", "INTOXICATED", "PUBLIC INTOX", "OPEN CONT"]),
+    ("Drugs / Possession", ["POSS", "POSS CS", "POSSESSION", "CONTROLLED SUB", "CS", "DRUG", "NARC", "MARIJ", "METH", "COCAINE", "HEROIN", "PARAPH"]),
+    ("Family Violence / Assault", ["FAMILY", "FV", "ASSAULT", "AGG ASSAULT", "BODILY INJURY", "CHOKE", "STRANG", "DOMESTIC"]),
+    ("Theft / Fraud", ["THEFT", "BURGL", "ROBB", "FRAUD", "FORGERY", "IDENTITY", "STOLEN", "SHOPLIFT"]),
+    ("Weapons", ["WEAPON", "FIREARM", "GUN", "UCW", "UNL CARRYING"]),
     ("Evading / Resisting", ["EVADING", "RESIST", "INTERFER", "OBSTRUCT", "FLEE"]),
     ("Warrants / Court / Bond", ["WARRANT", "FTA", "FAIL TO APPEAR", "BOND", "PAROLE", "PROBATION"]),
 ]
@@ -119,13 +126,11 @@ EMBEDDED_BOOKING_RE = re.compile(r"(\d{2}-\d{7})")
 def normalize_ws(s: str) -> str:
     return re.sub(r"\s+", " ", (s or "")).strip()
 
-
 def is_junk_line(ln: str) -> bool:
     up = (ln or "").strip().upper()
     if not up:
         return True
     return any(s in up for s in JUNK_SUBSTRINGS)
-
 
 def looks_like_address(ln: str) -> bool:
     up = (ln or "").strip().upper()
@@ -137,7 +142,6 @@ def looks_like_address(ln: str) -> bool:
         return True
     return STREET_SUFFIX_RE.search(up) is not None
 
-
 def clean_charge_line(raw: str) -> str:
     if not raw:
         return ""
@@ -148,7 +152,6 @@ def clean_charge_line(raw: str) -> str:
     s = TRAILING_CITY_TX_ZIP_RE.sub("", s).strip()
     s = re.sub(r"\s+TX\s+\d{5}(?:-\d{4})?\s*$", "", s).strip()
     return s
-
 
 def extract_city_from_addr_lines(addr_lines: list[str]) -> str:
     for ln in addr_lines:
@@ -171,6 +174,10 @@ def extract_city_from_addr_lines(addr_lines: list[str]) -> str:
             return normalize_ws(m3.group(1).title())
     return "Unknown"
 
+def pct_to_number(pct_value) -> int:
+    if isinstance(pct_value, (int, float)):
+        return int(round(pct_value))
+    return int(str(pct_value).replace("%", "").strip() or 0)
 
 def apply_content_line(rec: dict, ln: str) -> None:
     rec.setdefault("addr_lines", [])
@@ -206,7 +213,6 @@ def apply_content_line(rec: dict, ln: str) -> None:
     else:
         rec["charges"][-1] = normalize_ws(rec["charges"][-1] + " " + cleaned)
 
-
 def finalize_record(rec: dict) -> dict:
     cleaned_charges = [clean_charge_line(c) for c in rec.get("charges", []) if c]
     deduped = []
@@ -223,21 +229,6 @@ def finalize_record(rec: dict) -> dict:
         "description": ", ".join(deduped),
     }
 
-
-def pct_to_number(pct_value) -> int:
-    if isinstance(pct_value, (int, float)):
-        return int(round(pct_value))
-    return int(str(pct_value).replace("%", "").strip() or 0)
-
-
-def infer_charge_category(charges: str) -> str:
-    charge_text = re.sub(r"[^A-Z0-9 /<>=-]", " ", (charges or "").upper())
-    charge_text = normalize_ws(charge_text)
-    for category, keywords in CATEGORY_RULES:
-        if any(keyword in charge_text for keyword in keywords):
-            return category
-    return "Other / Unknown"
-
 # ---------------------------------------------------------------------------
 # Fetch + Parse
 # ---------------------------------------------------------------------------
@@ -248,7 +239,6 @@ def fetch_pdf(url: str) -> bytes:
     r.raise_for_status()
     print("PDF fetched.")
     return r.content
-
 
 def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     records: list[dict] = []
@@ -314,7 +304,6 @@ def parse_booked_in(pdf_bytes: bytes) -> tuple[datetime, list[dict]]:
     print(f"Parsed {len(records)} booking records.")
     return report_dt, records
 
-
 def fix_embedded_booking_numbers(records: list[dict]) -> list[dict]:
     print("Fixing embedded booking numbers in names (if any)...")
     fixed = []
@@ -358,7 +347,11 @@ def analyze_stats(records: list[dict]) -> dict:
     categorized_charges = [(rec.get("description") or "").upper() for rec in records]
     charge_mix_counts = Counter()
     for charge_text in categorized_charges:
-        found_cat = infer_charge_category(charge_text)
+        found_cat = "Other / Unknown"
+        for category, keywords in CATEGORY_RULES:
+            if any(keyword in charge_text for keyword in keywords):
+                found_cat = category
+                break
         charge_mix_counts[found_cat] += 1
 
     charge_mix = []
@@ -405,7 +398,7 @@ def analyze_stats(records: list[dict]) -> dict:
     }
 
 # ---------------------------------------------------------------------------
-# Render HTML
+# Render Full HTML
 # ---------------------------------------------------------------------------
 
 def render_html(data: dict) -> str:
@@ -417,7 +410,7 @@ def render_html(data: dict) -> str:
     def build_charge_mix_bars(items):
         rows = []
         for label, pct_str, count in items:
-            pct = int(pct_str.replace("%", ""))
+            pct = int(str(pct_str).replace("%", ""))
             color = "#a09890" if label == "Other / Unknown" else "#c8a45a"
             rows.append(f'''<tr>
               <td style="padding:3px 0; width:140px; color:#666360; font-size:11px; vertical-align:middle;">{html.escape(label)}</td>
@@ -433,7 +426,7 @@ def render_html(data: dict) -> str:
     def build_city_bars(items):
         rows = []
         for label, pct_str, count in items:
-            pct = int(pct_str.replace("%", ""))
+            pct = int(str(pct_str).replace("%", ""))
             color = "#a09890" if label == "All Other Cities" else "#c8a45a"
             label_style = "color:#999590; font-style:italic;" if label == "All Other Cities" else "color:#666360;"
             rows.append(f'''<tr>
@@ -496,6 +489,54 @@ def render_html(data: dict) -> str:
     return template
 
 # ---------------------------------------------------------------------------
+# Build JSON payloads
+# ---------------------------------------------------------------------------
+
+def build_schema_bookings(records: list[dict], arrests_date_str: str) -> list[dict]:
+    sorted_records = sorted(records, key=lambda x: x.get("name", ""))
+    bookings = []
+    for i, rec in enumerate(sorted_records, 1):
+        bookings.append({
+            "num": i,
+            "name": rec.get("name", ""),
+            "date": rec.get("book_in_date", arrests_date_str),
+            "charges": rec.get("description", ""),
+            "city": rec.get("city", "Unknown"),
+        })
+    return bookings
+
+def build_base44_payload(stats: dict, records: list[dict], report_date_str: str, arrests_date_str: str) -> dict:
+    return {
+        "report_date": report_date_str,
+        "arrests_date": arrests_date_str,
+        "total_bookings": stats.get("total_bookings", 0),
+        "top_charge": stats.get("top_charge", "N/A"),
+        "charge_mix": [
+            {
+                "label": item[0],
+                "pct": pct_to_number(item[1]),
+                "count": item[2],
+            }
+            for item in stats.get("charge_mix", [])
+        ],
+        "cities": [
+            {
+                "city": item[0],
+                "pct": pct_to_number(item[1]),
+                "count": item[2],
+            }
+            for item in stats.get("cities", [])
+        ],
+        "bookings": build_schema_bookings(records, arrests_date_str),
+        "is_active": True,
+    }
+
+def save_json_output(payload: dict):
+    with open(JSON_OUTPUT_PATH, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+    print(f"Saved JSON to {JSON_OUTPUT_PATH}")
+
+# ---------------------------------------------------------------------------
 # PDF generation
 # ---------------------------------------------------------------------------
 
@@ -524,21 +565,16 @@ async def generate_pdf_from_html(html_content: str):
             "path": PDF_OUTPUT_PATH,
             "format": "Letter",
             "printBackground": True,
-            "margin": {
-                "top": "0.5in",
-                "right": "0.5in",
-                "bottom": "0.5in",
-                "left": "0.5in",
-            },
+            "margin": {"top": "0.5in", "right": "0.5in", "bottom": "0.5in", "left": "0.5in"},
         })
 
         print("PDF exists?", os.path.exists(PDF_OUTPUT_PATH))
         if os.path.exists(PDF_OUTPUT_PATH):
             print("PDF size:", os.path.getsize(PDF_OUTPUT_PATH), "bytes")
-
+            if os.path.getsize(PDF_OUTPUT_PATH) == 0:
+                print("WARNING: PDF size is 0 bytes.")
     except Exception as e:
         print(f"ERROR: PDF generation failed: {e}")
-
     finally:
         if browser:
             try:
@@ -547,12 +583,12 @@ async def generate_pdf_from_html(html_content: str):
                 print(f"WARNING: Browser close failed: {close_error}")
 
 # ---------------------------------------------------------------------------
-# Email
+# Personal Email (full HTML body + PDF attachment)
 # ---------------------------------------------------------------------------
 
 def send_email(subject: str, html_body: str):
     if not all([TO_EMAIL, SMTP_USER, SMTP_PASS]):
-        print("WARNING: Missing TO_EMAIL/SMTP_USER/SMTP_PASS. Skipping email.")
+        print("WARNING: Missing TO_EMAIL/SMTP_USER/SMTP_PASS. Skipping personal email.")
         return
 
     print(f"Sending email to {TO_EMAIL} ...")
@@ -589,56 +625,6 @@ def send_email(subject: str, html_body: str):
         print(f"FATAL: Email failed: {e}")
 
 # ---------------------------------------------------------------------------
-# Kit Broadcast Draft
-# ---------------------------------------------------------------------------
-
-def create_kit_broadcast(subject: str, html_body: str, preview_text: str):
-    """
-    Creates a DRAFT broadcast in Kit.
-    This does NOT send automatically.
-    You review/send inside Kit.
-    """
-    if not KIT_API_KEY:
-        print("WARNING: Missing KIT_API_KEY. Skipping Kit broadcast draft.")
-        return
-
-    print("Creating Kit broadcast draft...")
-
-    payload = {
-        "subject": subject,
-        "preview_text": preview_text,
-        "description": subject,
-        "content": html_body,
-        "public": False,
-        "send_at": None,
-    }
-
-    if KIT_EMAIL_TEMPLATE_ID:
-        try:
-            payload["email_template_id"] = int(KIT_EMAIL_TEMPLATE_ID)
-        except ValueError:
-            print(f"WARNING: Invalid KIT_EMAIL_TEMPLATE_ID='{KIT_EMAIL_TEMPLATE_ID}'. Using Kit default template.")
-
-    try:
-        response = requests.post(
-            "https://api.kit.com/v4/broadcasts",
-            headers={
-                "Content-Type": "application/json",
-                "X-Kit-Api-Key": KIT_API_KEY,
-            },
-            json=payload,
-            timeout=60,
-        )
-
-        print("Kit broadcast status:", response.status_code)
-        print("Kit response:", response.text[:1000])
-        response.raise_for_status()
-        print("Kit broadcast draft created successfully.")
-
-    except Exception as e:
-        print(f"ERROR: Kit broadcast draft failed: {e}")
-
-# ---------------------------------------------------------------------------
 # Base44 Sync
 # ---------------------------------------------------------------------------
 
@@ -673,63 +659,207 @@ def send_report_to_base44(report_payload: dict):
         print(f"ERROR: Base44 report sync failed: {e}")
 
 # ---------------------------------------------------------------------------
-# Payload Builder
+# Kit Email HTML â mobile-friendly summary only
 # ---------------------------------------------------------------------------
 
-def build_structured_payload(
-    report_date_str: str,
-    arrests_date_str: str,
-    report_date_display: str,
-    stats: dict,
-    sorted_records: list[dict],
-) -> dict:
-    bookings = []
-    for i, rec in enumerate(sorted_records, 1):
-        charges = rec.get("description", "")
-        bookings.append({
-            "num": i,
-            "name": rec.get("name", ""),
-            "date": rec.get("book_in_date", arrests_date_str),
-            "charges": charges,
-            "city": rec.get("city", "Unknown"),
-            "charge_category": infer_charge_category(charges),
-        })
+def build_simple_bar_rows(items, label_key="label", max_items=8):
+    rows = []
+    for item in items[:max_items]:
+        label = item.get(label_key, "")
+        pct = int(item.get("pct", 0))
+        count = item.get("count", 0)
 
-    charge_mix = []
-    for label, pct_str, count in stats.get("charge_mix", []):
-        charge_mix.append({
-            "label": label,
-            "pct": pct_to_number(pct_str),
-            "count": count,
-        })
+        rows.append(f'''
+        <tr>
+          <td style="padding:8px 0; font-family:Arial, sans-serif; font-size:14px; color:#444240; width:42%;">{html.escape(str(label))}</td>
+          <td style="padding:8px 10px; width:40%;">
+            <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#e8e4dc; border-radius:3px;">
+              <tr>
+                <td style="width:{pct}%; background:#c8a45a; height:10px; border-radius:3px; font-size:1px;">&nbsp;</td>
+                <td style="font-size:1px;">&nbsp;</td>
+              </tr>
+            </table>
+          </td>
+          <td style="padding:8px 0; font-family:Arial, sans-serif; font-size:14px; color:#1a1a1a; font-weight:bold; text-align:right; width:18%;">{pct}% <span style="color:#999590; font-weight:normal;">({count})</span></td>
+        </tr>
+        ''')
+    return "\n".join(rows)
 
-    cities = []
-    for city, pct_str, count in stats.get("cities", []):
-        cities.append({
-            "city": city,
-            "pct": pct_to_number(pct_str),
-            "count": count,
-        })
+def build_top_booking_cards(bookings, max_items=5):
+    cards = []
+    for booking in bookings[:max_items]:
+        num = booking.get("num", "")
+        name = booking.get("name", "")
+        date = booking.get("date", "")
+        charges = booking.get("charges", "")
+        city = booking.get("city", "")
+
+        cards.append(f'''
+        <tr>
+          <td style="padding:14px 0; border-bottom:1px solid #e8e4dc;">
+            <div style="font-family:Arial, sans-serif; font-size:12px; color:#999590; text-transform:uppercase; letter-spacing:1px; margin-bottom:4px;">#{num} Â· {html.escape(date)} Â· {html.escape(city)}</div>
+            <div style="font-family:Arial, sans-serif; font-size:16px; color:#1a1a1a; font-weight:bold; margin-bottom:6px;">{html.escape(name)}</div>
+            <div style="font-family:Arial, sans-serif; font-size:14px; line-height:1.45; color:#444240;">{html.escape(charges)}</div>
+          </td>
+        </tr>
+        ''')
+    return "\n".join(cards)
+
+def build_kit_email_html(report_payload: dict, report_date_display: str) -> str:
+    report_date = report_payload.get("report_date", "")
+    arrests_date = report_payload.get("arrests_date", "")
+    total_bookings = report_payload.get("total_bookings", 0)
+    top_charge = report_payload.get("top_charge", "N/A")
+    charge_mix = report_payload.get("charge_mix", [])
+    cities = report_payload.get("cities", [])
+    bookings = report_payload.get("bookings", [])
+
+    return f'''<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tarrant County Jail Report</title>
+</head>
+<body style="margin:0; padding:0; background:#f4f1eb;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#f4f1eb;">
+    <tr>
+      <td align="center" style="padding:24px 12px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="max-width:640px; background:#ffffff; border-top:6px solid #2b2a29;">
+          <tr>
+            <td style="padding:32px 24px 18px 24px;">
+              <div style="font-family:Arial, sans-serif; font-size:11px; letter-spacing:4px; color:#8f8a84; text-transform:uppercase; border:1px solid #d6d0c6; display:inline-block; padding:9px 12px; margin-bottom:22px;">
+                Daily Jail Report Â· Tarrant County, TX
+              </div>
+
+              <h1 style="font-family:Georgia, serif; font-size:34px; line-height:1.05; color:#1a1a1a; margin:0 0 8px 0;">Tarrant County Jail Report</h1>
+              <div style="font-family:Georgia, serif; font-size:20px; color:#837d76; margin-bottom:22px;">{html.escape(report_date_display)}</div>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:22px 0;">
+                <tr>
+                  <td style="background:#2b2a29; color:#ffffff; font-family:Arial, sans-serif; font-size:12px; letter-spacing:3px; text-transform:uppercase; padding:12px 14px; font-weight:bold;">
+                    Unclassified // For Informational Use Only
+                  </td>
+                </tr>
+              </table>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="border:1px solid #e0dbd2; margin-bottom:26px;">
+                <tr>
+                  <td align="center" style="padding:18px 8px; border-right:1px solid #e0dbd2;">
+                    <div style="font-family:Arial, sans-serif; font-size:11px; letter-spacing:3px; color:#9b958e; text-transform:uppercase;">Total Bookings</div>
+                    <div style="font-family:Georgia, serif; font-size:40px; color:#1a1a1a; font-weight:bold; margin-top:8px;">{total_bookings}</div>
+                    <div style="font-family:Arial, sans-serif; font-size:13px; color:#9b958e;">Last 24 Hours</div>
+                  </td>
+                  <td align="center" style="padding:18px 8px; border-right:1px solid #e0dbd2;">
+                    <div style="font-family:Arial, sans-serif; font-size:11px; letter-spacing:3px; color:#9b958e; text-transform:uppercase;">Report Date</div>
+                    <div style="font-family:Georgia, serif; font-size:26px; color:#1a1a1a; font-weight:bold; margin-top:12px;">{html.escape(report_date)}</div>
+                  </td>
+                  <td align="center" style="padding:18px 8px;">
+                    <div style="font-family:Arial, sans-serif; font-size:11px; letter-spacing:3px; color:#9b958e; text-transform:uppercase;">Arrests Date</div>
+                    <div style="font-family:Georgia, serif; font-size:26px; color:#1a1a1a; font-weight:bold; margin-top:12px;">{html.escape(arrests_date)}</div>
+                  </td>
+                </tr>
+              </table>
+
+              <h2 style="font-family:Georgia, serif; font-size:24px; color:#1a1a1a; margin:0 0 8px 0;">Daily Snapshot</h2>
+              <p style="font-family:Arial, sans-serif; font-size:15px; color:#837d76; line-height:1.5; margin:0 0 20px 0;">
+                Statistical summary of bookings for the 24-hour period ending {html.escape(arrests_date)}.
+              </p>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="background:#2b2a29; border-radius:4px; margin-bottom:26px;">
+                <tr>
+                  <td style="padding:18px 20px;">
+                    <div style="font-family:Arial, sans-serif; font-size:11px; letter-spacing:3px; color:#c8a45a; text-transform:uppercase; font-weight:bold; margin-bottom:8px;">Top Charge Today</div>
+                    <div style="font-family:Georgia, serif; font-size:22px; color:#ffffff; font-weight:bold;">{html.escape(top_charge)}</div>
+                  </td>
+                </tr>
+              </table>
+
+              <h3 style="font-family:Arial, sans-serif; font-size:13px; letter-spacing:3px; color:#8f8a84; text-transform:uppercase; margin:0 0 10px 0;">Charge Mix</h3>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-bottom:26px;">
+                {build_simple_bar_rows(charge_mix, label_key="label", max_items=8)}
+              </table>
+
+              <h3 style="font-family:Arial, sans-serif; font-size:13px; letter-spacing:3px; color:#8f8a84; text-transform:uppercase; margin:0 0 10px 0;">Arrests By City</h3>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-bottom:28px;">
+                {build_simple_bar_rows(cities, label_key="city", max_items=8)}
+              </table>
+
+              <h2 style="font-family:Georgia, serif; font-size:24px; color:#1a1a1a; margin:0 0 8px 0;">Top 5 Bookings</h2>
+              <p style="font-family:Arial, sans-serif; font-size:15px; color:#837d76; line-height:1.5; margin:0 0 12px 0;">
+                A quick preview from todayâs report. View the full booking list on the site.
+              </p>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin-bottom:30px;">
+                {build_top_booking_cards(bookings, max_items=5)}
+              </table>
+
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="margin:30px 0;">
+                <tr>
+                  <td align="center">
+                    <a href="{html.escape(REPORT_ACCESS_URL)}" style="background:#1a1a1a; color:#ffffff; display:inline-block; font-family:Arial, sans-serif; font-size:16px; font-weight:bold; text-decoration:none; padding:15px 22px; border-radius:6px;">
+                      View Full Report
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="font-family:Arial, sans-serif; font-size:12px; color:#8f8a84; line-height:1.5; margin:24px 0 0 0;">
+                This report is generated from publicly available data provided by Tarrant County, Texas. Booking records reflect arrests and charges at the time of booking and do not imply guilt or conviction. Individuals are presumed innocent until proven guilty in a court of law.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>'''
+
+# ---------------------------------------------------------------------------
+# Kit Broadcast Draft
+# ---------------------------------------------------------------------------
+
+def create_kit_broadcast(subject: str, html_body: str, preview_text: str):
+    if not KIT_API_KEY:
+        print("WARNING: Missing KIT_API_KEY. Skipping Kit broadcast draft.")
+        return
+
+    print("Creating Kit broadcast draft...")
 
     payload = {
-        "report_date": report_date_str,
-        "report_date_display": report_date_display,
-        "arrests_date": arrests_date_str,
-        "total_bookings": stats.get("total_bookings", 0),
-        "top_charge": stats.get("top_charge", "N/A"),
-        "charge_mix": charge_mix,
-        "cities": cities,
-        "bookings": bookings,
-        "is_active": True,
-        "source": "Tarrant County CJ Reports",
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "subject": subject,
+        "preview_text": preview_text,
+        "description": subject,
+        "content": html_body,
+        "public": False,
+        "send_at": None,
     }
 
-    with open(JSON_OUTPUT_PATH, "w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2)
-    print(f"Saved JSON to {JSON_OUTPUT_PATH}")
+    if KIT_EMAIL_TEMPLATE_ID:
+        try:
+            payload["email_template_id"] = int(KIT_EMAIL_TEMPLATE_ID)
+        except ValueError:
+            print(f"WARNING: Invalid KIT_EMAIL_TEMPLATE_ID='{KIT_EMAIL_TEMPLATE_ID}'. Using Kit default template.")
 
-    return payload
+    try:
+        r = requests.post(
+            "https://api.kit.com/v4/broadcasts",
+            headers={
+                "Content-Type": "application/json",
+                "X-Kit-Api-Key": KIT_API_KEY,
+            },
+            json=payload,
+            timeout=60,
+        )
+
+        print("Kit broadcast status:", r.status_code)
+        print("Kit response:", r.text[:1000])
+        r.raise_for_status()
+        print("Kit broadcast draft created successfully.")
+
+    except Exception as e:
+        print(f"ERROR: Kit broadcast draft failed: {e}")
 
 # ---------------------------------------------------------------------------
 # Main
@@ -766,34 +896,37 @@ async def main():
         "bookings": sorted_records,
     }
 
-    html_content = render_html(template_data)
-    await generate_pdf_from_html(html_content)
-
-    report_payload = build_structured_payload(
+    base44_payload = build_base44_payload(
+        stats=stats,
+        records=records,
         report_date_str=report_date_str,
         arrests_date_str=arrests_date_str,
-        report_date_display=report_date_display,
-        stats=stats,
-        sorted_records=sorted_records,
     )
 
+    save_json_output(base44_payload)
+
+    full_html_content = render_html(template_data)
+    await generate_pdf_from_html(full_html_content)
+
+    # Use plain hyphen to avoid subject encoding issues inside Kit.
     subject = f"Tarrant County Jail Report - Arrests for {arrests_date_str}"
+    preview_text = f"Arrests booked on {arrests_date_str}"
 
-    # Existing daily email to you
-    send_email(subject, html_content)
+    # Existing full personal email to you.
+    send_email(subject, full_html_content)
 
-    # Kit draft broadcast for manual review/send
+    # Mobile-friendly Kit draft email.
+    kit_html_content = build_kit_email_html(base44_payload, report_date_display)
     create_kit_broadcast(
         subject=subject,
-        html_body=html_content,
-        preview_text=f"Arrests booked on {arrests_date_str}",
+        html_body=kit_html_content,
+        preview_text=preview_text,
     )
 
-    # Base44 website/database sync
-    send_report_to_base44(report_payload)
+    # Existing Base44 live website update.
+    send_report_to_base44(base44_payload)
 
     print("--- Done ---")
-
 
 if __name__ == "__main__":
     loop = asyncio.new_event_loop()
