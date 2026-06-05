@@ -1,5 +1,12 @@
 [
   {
+    "arrests_date": "6/4/2026",
+    "report_date": "6/5/2026",
+    "total_bookings": 163,
+    "top_charge": "AGG ASSAULT W/DEADLY WEAPON",
+    "path": "output/archive/reports/2026-06-04/report.json"
+  },
+  {
     "arrests_date": "6/3/2026",
     "report_date": "6/4/2026",
     "total_bookings": 129,
