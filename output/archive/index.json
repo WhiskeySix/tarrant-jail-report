@@ -1,5 +1,12 @@
 [
   {
+    "arrests_date": "6/9/2026",
+    "report_date": "6/10/2026",
+    "total_bookings": 143,
+    "top_charge": "THEFT PROP >=$100<$750",
+    "path": "output/archive/reports/2026-06-09/report.json"
+  },
+  {
     "arrests_date": "6/8/2026",
     "report_date": "6/9/2026",
     "total_bookings": 119,
