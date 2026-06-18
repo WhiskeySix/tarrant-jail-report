@@ -1,136 +1,136 @@
 {
-  "report_date": "6/15/2026",
-  "report_date_display": "Monday, June 15, 2026",
-  "arrests_date": "6/14/2026",
-  "total_bookings": 119,
-  "top_charge": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+  "report_date": "6/18/2026",
+  "report_date_display": "Thursday, June 18, 2026",
+  "arrests_date": "6/17/2026",
+  "total_bookings": 150,
+  "top_charge": "CRIMINAL TRESPASS",
   "charge_mix": [
     {
       "label": "Drugs / Possession",
-      "pct": 27,
-      "count": 32
-    },
-    {
-      "label": "DWI / Alcohol",
-      "pct": 23,
-      "count": 27
-    },
-    {
-      "label": "Family Violence / Assault",
-      "pct": 23,
-      "count": 27
+      "pct": 29,
+      "count": 44
     },
     {
       "label": "Other / Unknown",
-      "pct": 13,
-      "count": 15
+      "pct": 21,
+      "count": 32
+    },
+    {
+      "label": "Family Violence / Assault",
+      "pct": 21,
+      "count": 31
+    },
+    {
+      "label": "DWI / Alcohol",
+      "pct": 14,
+      "count": 21
     },
     {
       "label": "Theft / Fraud",
-      "pct": 8,
+      "pct": 6,
       "count": 9
     },
     {
-      "label": "Evading / Resisting",
+      "label": "Warrants / Court / Bond",
       "pct": 4,
-      "count": 5
+      "count": 6
     },
     {
-      "label": "Warrants / Court / Bond",
+      "label": "Evading / Resisting",
       "pct": 3,
-      "count": 3
+      "count": 5
     },
     {
       "label": "Weapons",
       "pct": 1,
-      "count": 1
+      "count": 2
     }
   ],
   "cities": [
     {
       "city": "Fort Worth",
-      "pct": 38,
-      "count": 45
+      "pct": 43,
+      "count": 65
     },
     {
       "city": "Arlington",
       "pct": 17,
-      "count": 20
-    },
-    {
-      "city": "Irving",
-      "pct": 5,
-      "count": 6
+      "count": 25
     },
     {
       "city": "Grand Prairie",
-      "pct": 5,
-      "count": 6
-    },
-    {
-      "city": "Dallas",
-      "pct": 4,
+      "pct": 3,
       "count": 5
     },
     {
-      "city": "Bedford",
-      "pct": 3,
-      "count": 3
-    },
-    {
-      "city": "Forest Hill",
-      "pct": 3,
+      "city": "Saginaw",
+      "pct": 2,
       "count": 3
     },
     {
       "city": "Ftw",
-      "pct": 3,
+      "pct": 2,
       "count": 3
     },
     {
-      "city": "Euless",
+      "city": "Mansfield",
       "pct": 2,
+      "count": 3
+    },
+    {
+      "city": "Burleson",
+      "pct": 1,
+      "count": 2
+    },
+    {
+      "city": "Watauga",
+      "pct": 1,
+      "count": 2
+    },
+    {
+      "city": "Azle",
+      "pct": 1,
       "count": 2
     },
     {
       "city": "All Other Cities",
-      "pct": 22,
-      "count": 26
+      "pct": 27,
+      "count": 40
     }
   ],
   "charge_bars": [
     {
       "label": "Drugs / Poss.",
-      "pct": 27,
-      "color": "#c8a45a"
-    },
-    {
-      "label": "DWI / Alcohol",
-      "pct": 23,
-      "color": "#c8a45a"
-    },
-    {
-      "label": "Fam. Violence",
-      "pct": 23,
+      "pct": 29,
       "color": "#c8a45a"
     },
     {
       "label": "Other",
-      "pct": 13,
+      "pct": 21,
       "color": "#a09890"
     },
     {
-      "label": "Theft / Fraud",
-      "pct": 8,
+      "label": "Fam. Violence",
+      "pct": 21,
       "color": "#c8a45a"
     },
     {
-      "label": "Evading",
-      "pct": 4,
+      "label": "DWI / Alcohol",
+      "pct": 14,
+      "color": "#c8a45a"
+    },
+    {
+      "label": "Theft / Fraud",
+      "pct": 6,
       "color": "#c8a45a"
     },
     {
       "label": "Warrants",
+      "pct": 4,
+      "color": "#c8a45a"
+    },
+    {
+      "label": "Evading",
       "pct": 3,
       "color": "#c8a45a"
     },
@@ -143,997 +143,1245 @@
   "top_bookings": [
     {
       "num": 1,
-      "name": "AMAYA, ALEXA PATRICIA",
-      "date": "6/14/2026",
-      "charges": "POSS CS PG 2 < 1G",
-      "city": "Irving",
-      "charge_category": "Drugs / Possession"
+      "name": "ABUANBAR, ZADE SAID",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL TRESPASS",
+      "city": "Arlington",
+      "charge_category": "Other / Unknown"
     },
     {
       "num": 2,
-      "name": "ANDERSON, DINAH",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "city": "Watauga",
-      "charge_category": "Family Violence / Assault"
+      "name": "ADKINS, SHARLETT ROSHON",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED 2ND",
+      "city": "Fort Worth",
+      "charge_category": "DWI / Alcohol"
     },
     {
       "num": 3,
-      "name": "ANGALE, MLONDANI",
-      "date": "6/14/2026",
-      "charges": "CRIM TRESPASS HABIT/SHLTR/SUPRFUND/INFSTRT, INTERFER W/PUBLIC DUTIES",
+      "name": "ALEXANDER, KENDELL DERRICK",
+      "date": "6/17/2026",
+      "charges": "DRIVING W/LIC INV W/PREV CONV/SUSP/W/O FIN RES",
+      "city": "Grand Prairie",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 4,
+      "name": "ALVARADO, AARON JOSEPH",
+      "date": "6/17/2026",
+      "charges": "INTERFER W/PUBLIC DUTIES",
       "city": "Fort Worth",
       "charge_category": "Evading / Resisting"
     },
     {
-      "num": 4,
-      "name": "ANYAH, MICHAEL",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE, INTERFER W/EMERGENCY CALL",
-      "city": "Mansfield",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
       "num": 5,
-      "name": "ARRIAGA, JULIAN",
-      "date": "6/14/2026",
-      "charges": "COLLISION INVOLVING DAMAGE TO VEHICLE>=$200",
-      "city": "Fortworth",
-      "charge_category": "Other / Unknown"
+      "name": "ALVARADO, PATRICK",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1 >=4G<200G, POSS MARIJ <2OZ",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
     }
   ],
   "bookings": [
     {
       "num": 1,
-      "name": "AMAYA, ALEXA PATRICIA",
-      "date": "6/14/2026",
-      "charges": "POSS CS PG 2 < 1G",
-      "city": "Irving",
-      "charge_category": "Drugs / Possession"
+      "name": "ABUANBAR, ZADE SAID",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL TRESPASS",
+      "city": "Arlington",
+      "charge_category": "Other / Unknown"
     },
     {
       "num": 2,
-      "name": "ANDERSON, DINAH",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "city": "Watauga",
-      "charge_category": "Family Violence / Assault"
+      "name": "ADKINS, SHARLETT ROSHON",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED 2ND",
+      "city": "Fort Worth",
+      "charge_category": "DWI / Alcohol"
     },
     {
       "num": 3,
-      "name": "ANGALE, MLONDANI",
-      "date": "6/14/2026",
-      "charges": "CRIM TRESPASS HABIT/SHLTR/SUPRFUND/INFSTRT, INTERFER W/PUBLIC DUTIES",
+      "name": "ALEXANDER, KENDELL DERRICK",
+      "date": "6/17/2026",
+      "charges": "DRIVING W/LIC INV W/PREV CONV/SUSP/W/O FIN RES",
+      "city": "Grand Prairie",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 4,
+      "name": "ALVARADO, AARON JOSEPH",
+      "date": "6/17/2026",
+      "charges": "INTERFER W/PUBLIC DUTIES",
       "city": "Fort Worth",
       "charge_category": "Evading / Resisting"
     },
     {
-      "num": 4,
-      "name": "ANYAH, MICHAEL",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE, INTERFER W/EMERGENCY CALL",
-      "city": "Mansfield",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
       "num": 5,
-      "name": "ARRIAGA, JULIAN",
-      "date": "6/14/2026",
-      "charges": "COLLISION INVOLVING DAMAGE TO VEHICLE>=$200",
-      "city": "Fortworth",
-      "charge_category": "Other / Unknown"
-    },
-    {
-      "num": 6,
-      "name": "AVILES, JASON",
-      "date": "6/14/2026",
-      "charges": "FRAUD USE/POSS IDENT INFO # ITEMS 10<50 ELDER",
-      "city": "Unknown",
+      "name": "ALVARADO, PATRICK",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1 >=4G<200G, POSS MARIJ <2OZ",
+      "city": "Fort Worth",
       "charge_category": "Drugs / Possession"
     },
     {
-      "num": 7,
-      "name": "BALLASTEROS, NANAK DEV",
-      "date": "6/14/2026",
-      "charges": "POSS MARIJ >4OZ<=5LBS",
+      "num": 6,
+      "name": "ANDERSON, PATRICK D",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED 3RD OR MORE IAT",
       "city": "Arlington",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 7,
+      "name": "AVALOS, MICHAEL",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B <1G",
+      "city": "Austin",
       "charge_category": "Drugs / Possession"
     },
     {
       "num": 8,
-      "name": "BARRETT, DAQUARIUS DREON",
-      "date": "6/14/2026",
-      "charges": "THEFT PROP <$2,500 2/MORE PREV CONV",
+      "name": "AVILA, CEFERINO",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED 3RD OR MORE IAT",
       "city": "Fort Worth",
-      "charge_category": "Theft / Fraud"
+      "charge_category": "DWI / Alcohol"
     },
     {
       "num": 9,
-      "name": "BELL, BRAYLON DENOY",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE, INTERFER W/EMERGENCY CALL",
-      "city": "Richland Hills",
-      "charge_category": "Family Violence / Assault"
+      "name": "BATES, SHAVONKIA",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B <1G",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
     },
     {
       "num": 10,
-      "name": "BELL, DAQUALIUS DASHON",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "city": "Fort Worth",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 11,
-      "name": "BELL, JAMARION QUENTIN",
-      "date": "6/14/2026",
-      "charges": "DISCHARGE FIREARM IN CERTAIN MUNICIPALITIES",
-      "city": "Fort Worth",
-      "charge_category": "Weapons"
-    },
-    {
-      "num": 12,
-      "name": "BENEDETTI, MICHAEL JAMES",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "city": "Bedford",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 13,
-      "name": "BERNARD, DEMARCO ANTONIO",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED BAC >= 0.15",
-      "city": "Fort Worth",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 14,
-      "name": "BOERST, SAMANTHA MARIE",
-      "date": "6/14/2026",
-      "charges": "CREDIT CARD OR DEBIT CARD ABUSE ELDERLY, FRAUD USE/POSS IDENT INFO # ITEMS <5 ELDERLY",
-      "city": "Fort Worth",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 15,
-      "name": "BOLANOS, ISMAEL",
-      "date": "6/14/2026",
-      "charges": "THEFT PROP <$2,500 2/MORE PREV CONV",
-      "city": "Fort Worth",
-      "charge_category": "Theft / Fraud"
-    },
-    {
-      "num": 16,
-      "name": "CAMPBELL, JACQUELYN ROCHELLE",
-      "date": "6/14/2026",
-      "charges": "AGG ASSAULT W/DEADLY WEAPON, EVADING ARREST DETENTION",
-      "city": "Forest Hill",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 17,
-      "name": "CARRILLOARREDONDO, ALEJANDRO BRYAN",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE, DRIVING WHILE INTOXICATED",
-      "city": "Arlington",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 18,
-      "name": "CHRISTOPHER, DUSTIN R",
-      "date": "6/14/2026",
-      "charges": "THEFT OF SERV >=$750<$2,500",
-      "city": "Grand Prairie",
-      "charge_category": "Theft / Fraud"
-    },
-    {
-      "num": 19,
-      "name": "CLARK, SHAMIA ANNETTE",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "city": "Arlington",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 20,
-      "name": "CONCHASSANTOYO, JUAN",
-      "date": "6/14/2026",
-      "charges": "FAIL TO IDENTIFY GIVING FALSE/FICTITIOUS INFO",
-      "city": "Ftw",
-      "charge_category": "Other / Unknown"
-    },
-    {
-      "num": 21,
-      "name": "CONNOR, LORI MICHELLE",
-      "date": "6/14/2026",
-      "charges": "POSS CS PG 1/1-B <1G",
-      "city": "Euless",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 22,
-      "name": "CREEK, SHERRY LYNN",
-      "date": "6/14/2026",
-      "charges": "POSS CS PG 1/1-B <1G, POSS CS PG 3 < 28G",
-      "city": "Arlington",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 23,
-      "name": "DAVIS, DERRICK LOUIS",
-      "date": "6/14/2026",
-      "charges": "ASSAULT OF PREGNANT PERSON",
-      "city": "Fort Worth",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 24,
-      "name": "DAVIS, FREDRICK HENRY",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED",
-      "city": "Lancaster",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 25,
-      "name": "DEAN, JOSHUA WAYNE",
-      "date": "6/14/2026",
-      "charges": "POSS CS PG 1/1-B >=1G<4G, TAMPER/FABRICATE PHYS EVID W/INTENT TO IMPAIR",
-      "city": "Irving",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 26,
-      "name": "DELGADO, GABRIEL",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED",
-      "city": "Irving",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 27,
-      "name": "DERRICK, JUSTIN DEWAYNE",
-      "date": "6/14/2026",
-      "charges": "POSS MARIJ <2OZ",
-      "city": "Lancaster",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 28,
-      "name": "DISLAREYNOSO, HARLYN",
-      "date": "6/14/2026",
-      "charges": "VIOL BOND/PROTECTIVE ORDER",
-      "city": "Dallas",
-      "charge_category": "Warrants / Court / Bond"
-    },
-    {
-      "num": 29,
-      "name": "DOBBINS, DAWN",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED",
-      "city": "Arlington",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 30,
-      "name": "DUNCANGOWDY, BRAYDON",
-      "date": "6/14/2026",
-      "charges": "AGG ASSAULT W/DEADLY WEAPON",
-      "city": "Grand Praire",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 31,
-      "name": "ESPINOSAZUNIGA, FIDEL",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED",
-      "city": "Arlington",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 32,
-      "name": "FIELDER, DAYLON BRSHAWN",
-      "date": "6/14/2026",
-      "charges": "POSS MARIJ >4OZ<=5LBS",
-      "city": "Grand Prairie",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 33,
-      "name": "FONSECAAMADOR, LUCINA",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED/OPEN ALCH CONTAINER",
-      "city": "Arlington",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 34,
-      "name": "FONSECAPEREZ, RAUL",
-      "date": "6/14/2026",
-      "charges": "COLLISION INVOLVING DAMAGE TO VEHICLE>=$200",
-      "city": "Arlington",
-      "charge_category": "Other / Unknown"
-    },
-    {
-      "num": 35,
-      "name": "FONSECASUSANACA, JUAN",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED/OPEN ALCH CONTAINER",
-      "city": "Keller",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 36,
-      "name": "GARCIA, TAMMERDALE",
-      "date": "6/14/2026",
-      "charges": "UNLAWFUL RESTRAINT",
-      "city": "North Richland Hills",
-      "charge_category": "Other / Unknown"
-    },
-    {
-      "num": 37,
-      "name": "GARCIA, VICTOR",
-      "date": "6/14/2026",
-      "charges": "26-0285198 DRIVING WHILE INTOXICATED 2ND, POSS MARIJ <2OZ, UNL CARRYING WEAPON",
-      "city": "Irving",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 38,
-      "name": "GOODRICH, TORI JEROME",
-      "date": "6/14/2026",
-      "charges": "ASSAULT PEACE OFFICER/JUDGE, RESIST ARREST SEARCH OR TRANSPORT",
-      "city": "Fort Worth",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 39,
-      "name": "GUERRA, JOSEPH MUNOZ",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED/OPEN ALCH CONTAINER, POSS CS PG 2 < 1G",
-      "city": "Grand Prairie",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 40,
-      "name": "GUZMAN, RONNY",
-      "date": "6/14/2026",
-      "charges": "26-0285128 FAIL TO IDENTIFY FUGITIVE INTENT GIVE FALSE INFO, POSS CS PG 1/1-B <1G, POSS DANGEROUS DRUG",
-      "city": "Fort Worth",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 41,
-      "name": "HAMILTON, ANTONIO RENE",
-      "date": "6/14/2026",
-      "charges": "EVADING ARREST DET W/PREV CONVICTION",
-      "city": "Fort Worth",
-      "charge_category": "Evading / Resisting"
-    },
-    {
-      "num": 42,
-      "name": "HARMON, WILLIAM HENRY",
-      "date": "6/14/2026",
+      "name": "BAUGH, DAVID ARLIE",
+      "date": "6/17/2026",
       "charges": "CRIMINAL TRESPASS",
       "city": "Fort Worth",
       "charge_category": "Other / Unknown"
     },
     {
-      "num": 43,
-      "name": "HARRIS, RACHEL LYNNETTE",
-      "date": "6/14/2026",
-      "charges": "VIOL BOND/PROTECTIVE ORDER 2+ TIMES W/I 12 MO, VIOL BOND/PROTECTIVE ORDER ASSAULT/STALK IAT",
-      "city": "Fort Worth",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 44,
-      "name": "HERNANDEZ, JOSE HILARIO",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED 2ND",
-      "city": "Haltom City",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 45,
-      "name": "HERNANDEZCRUZ, BRYAN",
-      "date": "6/14/2026",
-      "charges": "EVADING ARREST DET W/VEH",
-      "city": "Dallas",
-      "charge_category": "Evading / Resisting"
-    },
-    {
-      "num": 46,
-      "name": "HIGGINS, GUY RANDY",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "city": "Fort Worth",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 47,
-      "name": "HOLLIE, CASSIDY",
-      "date": "6/14/2026",
-      "charges": "ENGAGING IN ORGANIZED CRIMINAL ACTIVITY",
-      "city": "Fort Worth",
-      "charge_category": "Other / Unknown"
-    },
-    {
-      "num": 48,
-      "name": "HUGHES, WILLIAM VINCENT",
-      "date": "6/14/2026",
-      "charges": "ASSAULT FAM/HOUSE MEM IMPEDE BREATH/CIRCULAT",
-      "city": "Sam Raburn",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 49,
-      "name": "HURTADO, ALEXANDER RENE",
-      "date": "6/14/2026",
-      "charges": "POSS CS PG 2 >= 1G<4G, POSS CS PG 1/1-B <1G",
-      "city": "Fort Worth",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 50,
-      "name": "JACOBS, RAYMON",
-      "date": "6/14/2026",
-      "charges": "CRIMINAL MISCHIEF >=$750<$2,500",
-      "city": "Fort Worth",
-      "charge_category": "Other / Unknown"
-    },
-    {
-      "num": 51,
-      "name": "JASPERSTEWART, LAWRENCE EUSTHER",
-      "date": "6/14/2026",
-      "charges": "26-0285197 BURGLARY OF BUILDING, POSS CS PG 1/1-B >=1G<4G, UNAUTH USE OF VEHICLE",
-      "city": "Dallas",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 52,
-      "name": "JOHNSON, JAMES KENT",
-      "date": "6/14/2026",
-      "charges": "UNLAWFUL RESTRAINT, VIOL BOND/PROTECTIVE ORDER",
-      "city": "River Oaks",
-      "charge_category": "Warrants / Court / Bond"
-    },
-    {
-      "num": 53,
-      "name": "JOHNSON, MARIAH",
-      "date": "6/14/2026",
-      "charges": "FRAUD USE/POSS IDENTIFYING INFO # ITEMS 10<50",
-      "city": "Fort Worth",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 54,
-      "name": "JOHNSON, RONISHA",
-      "date": "6/14/2026",
-      "charges": "POSS MARIJ <2OZ, POSS CS PG 1/1-B <1G",
-      "city": "Fort Worth",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 55,
-      "name": "JOHNSON, SHANQULIA",
-      "date": "6/14/2026",
-      "charges": "INTOXICATION ASSAULT W/VEHICLE SBI",
-      "city": "Fort Worth",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 56,
-      "name": "JUAREZ, ANGEL",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED",
-      "city": "Fort Worth",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 57,
-      "name": "LAGWAY, IAN FINEE",
-      "date": "6/14/2026",
-      "charges": "THEFT PROP >=$100<$750",
-      "city": "Joshua",
-      "charge_category": "Theft / Fraud"
-    },
-    {
-      "num": 58,
-      "name": "LEMIRE, COURTNEY",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+      "num": 11,
+      "name": "BEASLEY, ZANE OSCAR",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B <1G",
       "city": "Saginaw",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 59,
-      "name": "LEWTHWAITE, CELESTE",
-      "date": "6/14/2026",
-      "charges": "MAN DEL CS PG 1 >=4G<200G",
-      "city": "Palo Pinto",
       "charge_category": "Drugs / Possession"
     },
     {
-      "num": 60,
-      "name": "LOPEZ, ERIK RUBEN",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED",
-      "city": "Fw",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 61,
-      "name": "LYNCH, MATTHEW THOMAS",
-      "date": "6/14/2026",
-      "charges": "ASSAULT AGAINST ELDERLY OR DISABLED INDIVIDUAL HUNTSVILLE AL 35811",
-      "city": "Unknown",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 62,
-      "name": "MANUEL, GALLY BRENDAN",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED 3RD OR MORE IAT, POSS CS PG 1/1-B >=1G<4G",
-      "city": "Dallas",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 63,
-      "name": "MARTINEZ, BROOKLYN ADDISON",
-      "date": "6/14/2026",
-      "charges": "THEFT PROP >=$100<$750",
-      "city": "Fort Worth",
-      "charge_category": "Theft / Fraud"
-    },
-    {
-      "num": 64,
-      "name": "MARTINEZ, KIMBERLY MARGARET",
-      "date": "6/14/2026",
-      "charges": "POSS CS PG 2 < 1G, POSS CS PG1 <1G",
+      "num": 12,
+      "name": "BELL, MATTHEW DWAYNE",
+      "date": "6/17/2026",
+      "charges": "UNAUTH POSS CERTAIN COPPER/BRASS MATERIAL",
       "city": "Ftw",
       "charge_category": "Drugs / Possession"
     },
     {
-      "num": 65,
-      "name": "MARTINEZ, MICHELLE",
-      "date": "6/14/2026",
+      "num": 13,
+      "name": "BENNETTEL, RAMSES SA THOTH",
+      "date": "6/17/2026",
+      "charges": "SEXUAL ASSAULT CHILD",
+      "city": "Desoto",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 14,
+      "name": "BENTON, BRIAN",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B >=1G<4G, THEFT PROP >=$100<$750",
+      "city": "Springtown",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 15,
+      "name": "BLACKMON, STEPHEN TYLER",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL TRESPASS, INTERFER W/PUBLIC DUTIES",
+      "city": "Fort Worth",
+      "charge_category": "Evading / Resisting"
+    },
+    {
+      "num": 16,
+      "name": "BLAKE, JOSHUA CAMREN",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B >=1G<4G",
+      "city": "Burleson",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 17,
+      "name": "BLUNDELL, ANDREW BLAKE",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED 3RD OR MORE IAT",
+      "city": "Bedford",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 18,
+      "name": "BRIONES, BRYAN EDWARD",
+      "date": "6/17/2026",
+      "charges": "PAROLE VIOLATION",
+      "city": "Anderson",
+      "charge_category": "Warrants / Court / Bond"
+    },
+    {
+      "num": 19,
+      "name": "BROWN, BRANDON JOE",
+      "date": "6/17/2026",
+      "charges": "AGG ASSAULT W/DEADLY WEAPON",
+      "city": "Fort Worth",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 20,
+      "name": "CAMACHO, ANTONIA",
+      "date": "6/17/2026",
+      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+      "city": "Fort Worth",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 21,
+      "name": "CANTU, SERGIO ALEXANDER",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL TRESPASS HABIT/SUPERFUND/INFRASTRUCTION",
+      "city": "Grand Prairie",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 22,
+      "name": "CARROLL, GERALDO RAVIERA",
+      "date": "6/17/2026",
+      "charges": "POSS MARIJ <2OZ",
+      "city": "Richardson",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 23,
+      "name": "CECENAS, MICHAEL A",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B >=1G<4G, UNL POSS FIREARM BY FELON",
+      "city": "Saginaw",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 24,
+      "name": "CHAPMAN, CRYSTAL",
+      "date": "6/17/2026",
+      "charges": "THEFT PROP >=$750<$2,500",
+      "city": "Fort Worth",
+      "charge_category": "Theft / Fraud"
+    },
+    {
+      "num": 25,
+      "name": "CHHETRI, PREM",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED",
+      "city": "Watauga",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 26,
+      "name": "COLEMAN, THOMASINE",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B <1G",
+      "city": "Breckenridge",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 27,
+      "name": "COLLINS, VERNOSKI NORMEZ",
+      "date": "6/17/2026",
+      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+      "city": "Fort Worth",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 28,
+      "name": "COOPER, SAMIYA DIMONE",
+      "date": "6/17/2026",
+      "charges": "POSS MARIJ <2OZ",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 29,
+      "name": "CORREA, ANGEL",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED/OPEN ALCH CONTAINER",
+      "city": "Fort Worth",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 30,
+      "name": "COVARRUBIASRUBIO, IRVIN",
+      "date": "6/17/2026",
+      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+      "city": "Arlington",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 31,
+      "name": "CRUZ, DYLAN EDWARD",
+      "date": "6/17/2026",
+      "charges": "INDECENT EXPOSURE",
+      "city": "Watauga",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 32,
+      "name": "DICKERSON, JOY FRANCHESEA",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B <1G",
+      "city": "Justin",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 33,
+      "name": "DOTSON, ARISSA",
+      "date": "6/17/2026",
+      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+      "city": "Fort Worth",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 34,
+      "name": "DOWTY, ALIYAH MARIE",
+      "date": "6/17/2026",
+      "charges": "INTERFER W/PUBLIC DUTIES",
+      "city": "Fort Worth",
+      "charge_category": "Evading / Resisting"
+    },
+    {
+      "num": 35,
+      "name": "EBBIGHAUSEN, JARED ETHAN",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED BAC >= 0.15",
+      "city": "Arlington",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 36,
+      "name": "EIKNER, DENAZ LYNN",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B <1G",
+      "city": "Arlington",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 37,
+      "name": "EVANS, GARFIELD",
+      "date": "6/17/2026",
+      "charges": "FAIL TO IDENTIFY FUGITIVE INTENT GIVE FALSE INFO LOUISVILLE KY 40214",
+      "city": "Unknown",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 38,
+      "name": "FAIRBETTER, ALEXANDER SCOTT",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B >=1G<4G",
+      "city": "Azle",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 39,
+      "name": "FLORIEN, JOVANTE D",
+      "date": "6/17/2026",
+      "charges": "FUGITIVE GRAND RAPID MI 49548",
+      "city": "Unknown",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 40,
+      "name": "FOX, AUTUMN HALIE",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED/OPEN ALCH CONTAINER",
+      "city": "Fort Worth",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 41,
+      "name": "FRAKES, JOHNDEL ROBERT",
+      "date": "6/17/2026",
+      "charges": "POSSESSION OF DRUG PARAPHERNALIA, UNAUTH USE OF VEHICLE",
+      "city": "Arlington",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 42,
+      "name": "GAINES, SHANTELE SHARESE",
+      "date": "6/17/2026",
+      "charges": "FALSE DRUG TEST FALSIFICATION DEVICE",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 43,
+      "name": "GAKURU, BONAVENTURE",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED",
+      "city": "Fort Worth",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 44,
+      "name": "GARCIA, AMANDA GOMEZ",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B >=4G<200G",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 45,
+      "name": "GARCIA, EMANUEL",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL TRESPASS, POSS CS PG 1/1-B >=1G<4G",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 46,
+      "name": "GARCIACIRINO, ENIELYS",
+      "date": "6/17/2026",
       "charges": "ASSAULT CAUSES BODILY INJ",
       "city": "Fort Worth",
       "charge_category": "Family Violence / Assault"
     },
     {
-      "num": 66,
-      "name": "MARTINEZURBINA, IVAN",
-      "date": "6/14/2026",
-      "charges": "CRIMINAL TRESPASS",
+      "num": 47,
+      "name": "GARRISON, AUSTIN",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED BAC >= 0.15",
+      "city": "Fort Worth",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 48,
+      "name": "GERONIMO, JESSICA NASTA",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED 2ND, RESIST ARREST SEARCH OR TRANSPORT",
+      "city": "Colleyville",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 49,
+      "name": "GOFF, GARY",
+      "date": "6/17/2026",
+      "charges": "BURGLARY OF HABITATION, RESIST ARREST SEARCH OR TRANSPORT",
       "city": "Arlington",
+      "charge_category": "Theft / Fraud"
+    },
+    {
+      "num": 50,
+      "name": "GOMEZ, OSCAR",
+      "date": "6/17/2026",
+      "charges": "MANSLAUGHTER",
+      "city": "Fort Worth",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 51,
+      "name": "GONZALEZ, JUAN ROMAN",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED",
+      "city": "Fort Worth",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 52,
+      "name": "GREESON, KYLIE CHAY LYNNE",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED",
+      "city": "Hurst",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 53,
+      "name": "GRUBB, SPENCER",
+      "date": "6/17/2026",
+      "charges": "SEXUAL ASSAULT",
+      "city": "Grand Prairie",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 54,
+      "name": "GRUVER, MICHAEL RICHARD",
+      "date": "6/17/2026",
+      "charges": "HARASSMENT",
+      "city": "Arlilngton",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 55,
+      "name": "GUTERREZ, ANTHONY VINCETE",
+      "date": "6/17/2026",
+      "charges": "BURGLARY OF VEHICLES",
+      "city": "Fort Worth",
+      "charge_category": "Theft / Fraud"
+    },
+    {
+      "num": 56,
+      "name": "HARRIS, ELDRIDGE ELWOOD",
+      "date": "6/17/2026",
+      "charges": "ILLEGAL DUMPING >5LBS < 500 LBS",
+      "city": "Decatur",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 57,
+      "name": "HARRIS, GREGORY WAYNE",
+      "date": "6/17/2026",
+      "charges": "ASSAULT CAUSES BODILY INJ",
+      "city": "Fort Worth",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 58,
+      "name": "HE, HU",
+      "date": "6/17/2026",
+      "charges": "ENGAGING IN ORGANIZED CRIMINAL ACTIVITY, FINANCIAL ABUSE ELDERLY >=$150K",
+      "city": "Unknown",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 59,
+      "name": "HEFFERNAN, JAXSON ROBERT",
+      "date": "6/17/2026",
+      "charges": "POSS MARIJ <2OZ",
+      "city": "Arlington",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 60,
+      "name": "HEMPHILL, ALICE DENICE",
+      "date": "6/17/2026",
+      "charges": "AGG ASSAULT W/DEADLY WEAPON",
+      "city": "Arlington",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 61,
+      "name": "HENDERSON, JERMON DWIGHT",
+      "date": "6/17/2026",
+      "charges": "DEADLY CONDUCT DISCHARGE FIREARM, UNL POSS FIREARM FAM/HOUSE/COURT ORDER/GANG",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 62,
+      "name": "HERNANDEZ, ALEXIS",
+      "date": "6/17/2026",
+      "charges": "ASSAULT OF PREGNANT PERSON",
+      "city": "Fort Worth",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 63,
+      "name": "HERNANDEZ, DAVID",
+      "date": "6/17/2026",
+      "charges": "INJURY CHILD/ELDERLY/DISABLE W/INT BODILY INJ",
+      "city": "Fort Worth",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 64,
+      "name": "HERNANDEZ, JESUS",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B >=1G<4G",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 65,
+      "name": "HILL, COREY DOUGLAS",
+      "date": "6/17/2026",
+      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+      "city": "Arlington",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 66,
+      "name": "HILL, NICKEY LEE",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL TRESPASS",
+      "city": "Fort Worth",
       "charge_category": "Other / Unknown"
     },
     {
       "num": 67,
-      "name": "MCCRAY, CARL AVERY",
-      "date": "6/14/2026",
-      "charges": "POSS MARIJ <2OZ",
+      "name": "HOLDER, MATTHEW DAVID",
+      "date": "6/17/2026",
+      "charges": "26-0285816 FAIL TO IDENTIFY FUGITIVE INTENT GIVE FALSE INFO, MAN DEL CS PG 1 >=4G<200G, POSS CS PG 1/1-B >=4G<200G",
       "city": "Fort Worth",
       "charge_category": "Drugs / Possession"
     },
     {
       "num": 68,
-      "name": "MENDEZ, MONICA MARIE",
-      "date": "6/14/2026",
-      "charges": "CRIMINAL TRESPASS, RESIST ARREST SEARCH OR TRANSPORT",
+      "name": "HOLLINGSWORTH, JOHNNY EDWARD",
+      "date": "6/17/2026",
+      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
       "city": "Fort Worth",
-      "charge_category": "Evading / Resisting"
+      "charge_category": "Family Violence / Assault"
     },
     {
       "num": 69,
-      "name": "MENDOZA, JUAN",
-      "date": "6/14/2026",
-      "charges": "PAROLE VIOLATION, POSS CS PG 2 >= 1G<4G",
+      "name": "HOLT, GLEN J",
+      "date": "6/17/2026",
+      "charges": "ASSAULT FAMILY/HOUSEHOLD MEMBER W/PREV CONV, INTERFER W/EMERGENCY CALL",
       "city": "Fort Worth",
-      "charge_category": "Drugs / Possession"
+      "charge_category": "Family Violence / Assault"
     },
     {
       "num": 70,
-      "name": "MERRITT, PRESTON",
-      "date": "6/14/2026",
-      "charges": "THEFT PROP <$100 W/PREV CONVIC",
+      "name": "HUTCHINSON, TERREL",
+      "date": "6/17/2026",
+      "charges": "STALKING",
       "city": "Fort Worth",
-      "charge_category": "Theft / Fraud"
-    },
-    {
-      "num": 71,
-      "name": "MICHAEL, BRIAN GLENN",
-      "date": "6/14/2026",
-      "charges": "POSS CS PG 1/1-B <1G",
-      "city": "Bedford",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 72,
-      "name": "MORALES, LUIS",
-      "date": "6/14/2026",
-      "charges": "RACING ON HIGHWAY",
-      "city": "Forest Hill",
       "charge_category": "Other / Unknown"
     },
     {
-      "num": 73,
-      "name": "MORRELL, RAQUI DOZAI",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED, COLLISION INVOLVING DAMAGE TO VEHICLE>=$200",
+      "num": 71,
+      "name": "JAUREGUI, JOSE",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED",
       "city": "Fort Worth",
       "charge_category": "DWI / Alcohol"
     },
     {
+      "num": 72,
+      "name": "JORDAN, JEREMY",
+      "date": "6/17/2026",
+      "charges": "ASSAULT FAMILY/HOUSEHOLD MEMBER W/PREV CONV, POSS CS PG 1/1-B <1G",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 73,
+      "name": "JORDAN, JEREMY RAY",
+      "date": "6/17/2026",
+      "charges": "POSS MARIJ >4OZ<=5LBS",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
+    },
+    {
       "num": 74,
-      "name": "MOTON, MICHAEL ANDRE",
-      "date": "6/14/2026",
-      "charges": "POSS MARIJ <2OZ, RESIST ARREST SEARCH OR TRANSPORT",
-      "city": "Arlington",
+      "name": "JUMPER, REBECCA",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B <1G UN",
+      "city": "Unknown",
       "charge_category": "Drugs / Possession"
     },
     {
       "num": 75,
-      "name": "MUMPHREY, ROY LEE",
-      "date": "6/14/2026",
-      "charges": "TERRORISTIC THREAT CAUSE FEAR OF IMMINENT SBI",
-      "city": "Fort Worth",
+      "name": "KAIKAI, CALEB ANSU",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL MISCHIEF >=$2,500<$30K, CRIMINAL TRESPASS",
+      "city": "Benbrook",
       "charge_category": "Other / Unknown"
     },
     {
       "num": 76,
-      "name": "MUNOZ, NOEL",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED, POSS CS PG 2 >= 4G<400G",
+      "name": "KALMBACHER, DEVAN PAUL",
+      "date": "6/17/2026",
+      "charges": "AGG ASSAULT W/DEADLY WEAPON",
       "city": "Fort Worth",
-      "charge_category": "DWI / Alcohol"
+      "charge_category": "Family Violence / Assault"
     },
     {
       "num": 77,
-      "name": "MURILLO, AMABEL",
-      "date": "6/14/2026",
-      "charges": "POSS MARIJ <2OZ",
-      "city": "Arlington",
-      "charge_category": "Drugs / Possession"
+      "name": "LAZALDE, CARLOS ADAN",
+      "date": "6/17/2026",
+      "charges": "AGG ROBBERY",
+      "city": "Grand Prairie",
+      "charge_category": "Theft / Fraud"
     },
     {
       "num": 78,
-      "name": "MURRAY, JAMES MICHAEL",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED W/CHILD UNDER 15 YOA",
-      "city": "Fort Worth",
-      "charge_category": "DWI / Alcohol"
+      "name": "LEANDRO, JORGE ALBERTO",
+      "date": "6/17/2026",
+      "charges": "THEFT PROP >=$2,500<$30K",
+      "city": "Grapevine",
+      "charge_category": "Theft / Fraud"
     },
     {
       "num": 79,
-      "name": "NAVA, EFRAIN",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED/OPEN ALCH CONTAINER",
-      "city": "Arlington",
-      "charge_category": "DWI / Alcohol"
+      "name": "LEEDERS, LAWRENCE HERMAN",
+      "date": "6/17/2026",
+      "charges": "ILLEGAL DUMPING >1000LBS OR >200CFT",
+      "city": "Fort Worth",
+      "charge_category": "Other / Unknown"
     },
     {
       "num": 80,
-      "name": "NUR, MOHAMED",
-      "date": "6/14/2026",
-      "charges": "EVADING ARREST DET W/VEH, RECKLESS DRIVING",
-      "city": "Irving",
-      "charge_category": "Evading / Resisting"
+      "name": "LINDSEY, JAMES",
+      "date": "6/17/2026",
+      "charges": "ASSAULT FAM/HOUSE MEM IMPEDE BREATH/CIRCULAT",
+      "city": "Fort Worth",
+      "charge_category": "Family Violence / Assault"
     },
     {
       "num": 81,
-      "name": "OCHIENG, JAVIER DICK",
-      "date": "6/14/2026",
-      "charges": "INTERFER W/PUBLIC DUTIES, DRIVING WHILE INTOXICATED",
-      "city": "Grand Prairie",
-      "charge_category": "DWI / Alcohol"
+      "name": "LITTIG, CHARLES GLENN",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B >=4G<200G",
+      "city": "Burleson",
+      "charge_category": "Drugs / Possession"
     },
     {
       "num": 82,
-      "name": "ORTEGA, MICHAEL ANGALO",
-      "date": "6/14/2026",
+      "name": "LONGMIRE, TACARA JENISE",
+      "date": "6/17/2026",
       "charges": "CRIMINAL TRESPASS",
       "city": "Fort Worth",
       "charge_category": "Other / Unknown"
     },
     {
       "num": 83,
-      "name": "OSTEEN, ANDREW PAUL",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED",
-      "city": "Arlington",
-      "charge_category": "DWI / Alcohol"
+      "name": "LOPEZ, HECTOR",
+      "date": "6/17/2026",
+      "charges": "FUGITIVE",
+      "city": "Ftw",
+      "charge_category": "Other / Unknown"
     },
     {
       "num": 84,
-      "name": "PADILLA, JOE",
-      "date": "6/14/2026",
+      "name": "MADUENO, LUIS ENRIQUE",
+      "date": "6/17/2026",
+      "charges": "AGG ASSAULT W/DEADLY WEAPON",
+      "city": "Arlington",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 85,
+      "name": "MANIKHOUTH, MAXIME",
+      "date": "6/17/2026",
+      "charges": "26-0285810 BURGLARY OF HABITATION, MAN DEL CS PG 2 >=4G<400G, STALKING",
+      "city": "Haltom City",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 86,
+      "name": "MARES, MARIBEL",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED, DUTY ON STRIKING FIXTURE/HWY LANDSCAPE>=$200",
+      "city": "Fort Worth",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 87,
+      "name": "MARKSWOODSON, BENJAMIN THOMAS",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL TRESPASS, UNL USE OF CRIMINAL INSTRUMENT",
+      "city": "Garland",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 88,
+      "name": "MARTINEZ, GEORGE",
+      "date": "6/17/2026",
+      "charges": "PAROLE VIOLATION",
+      "city": "Weatherford",
+      "charge_category": "Warrants / Court / Bond"
+    },
+    {
+      "num": 89,
+      "name": "MASK, JULIA",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B >=4G<200G PONTOTOC MS 38863",
+      "city": "Unknown",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 90,
+      "name": "MCGUIRE, SHONDA MARIE",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL TRESPASS",
+      "city": "Dallas",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 91,
+      "name": "MENDEZ, RAMON S",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED 3RD OR MORE IAT",
+      "city": "Haltom City",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 92,
+      "name": "MILLENDER, NOLEN PAUL",
+      "date": "6/17/2026",
+      "charges": "INJURY CHILD/ELDERLY/DISABLE W/INT SBI/MENTAL",
+      "city": "Ft Worth",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 93,
+      "name": "MITCHELL, JIMMY HOUSTON",
+      "date": "6/17/2026",
+      "charges": "RT 1 BOX 647 114, PAROLE VIOLATION",
+      "city": "Boyd",
+      "charge_category": "Warrants / Court / Bond"
+    },
+    {
+      "num": 94,
+      "name": "MITCHELL, JOSHUA",
+      "date": "6/17/2026",
+      "charges": "ASSAULT FAM/HOUSE MEM IMPEDE BREATH/CIRCULAT, BURGLARY HABITATION INTEND OTHER FELONY",
+      "city": "Fort Worth",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 95,
+      "name": "MORA, ALMA",
+      "date": "6/17/2026",
+      "charges": "ASSAULT CAUSES BODILY INJ",
+      "city": "Blue Mound",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 96,
+      "name": "MOTA, JOSE LUIS",
+      "date": "6/17/2026",
+      "charges": "ASSAULT FAM/HOUSE MEM IMPEDE BREATH/CIRCULAT",
+      "city": "Mansfield",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 97,
+      "name": "NEWBY, RODNEY LAMAR",
+      "date": "6/17/2026",
+      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+      "city": "Arlington",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 98,
+      "name": "NEWMAN, DEZUAN",
+      "date": "6/17/2026",
+      "charges": "INTERFER W/PUBLIC DUTIES",
+      "city": "Fort Worth",
+      "charge_category": "Evading / Resisting"
+    },
+    {
+      "num": 99,
+      "name": "NUNN, DAVID CLAY",
+      "date": "6/17/2026",
+      "charges": "PROH SUBSTANCE/ITEM IN CORRECTIONAL FACILITY",
+      "city": "Arlington",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 100,
+      "name": "OBRYANT, DESTINY RHEA",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B >=1G<4G",
+      "city": "Crowley",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 101,
+      "name": "ODOM, CHARLES RAY",
+      "date": "6/17/2026",
+      "charges": "AGG ASSAULT W/DEADLY WEAPON",
+      "city": "Arlington",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 102,
+      "name": "ONEAL, CHAVEZ ISAIAHSHAQUILLE",
+      "date": "6/17/2026",
+      "charges": "UNL CARRYING WEAPON",
+      "city": "Houston",
+      "charge_category": "Weapons"
+    },
+    {
+      "num": 103,
+      "name": "PAIGE, DAVID GOODRICH",
+      "date": "6/17/2026",
       "charges": "POSS CS PG 1/1-B >=1G<4G",
       "city": "Fort Worth",
       "charge_category": "Drugs / Possession"
     },
     {
-      "num": 85,
-      "name": "PERDRIEL, ALEJANDRO E",
-      "date": "6/14/2026",
-      "charges": "26-0285077 EVADING ARREST DETENTION, RESIST ARREST SEARCH OR TRANSPORT, THEFT PROP <$100 W/PREV CONVIC",
+      "num": 104,
+      "name": "PATRON, DANNY",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL TRESPASS",
       "city": "Fort Worth",
-      "charge_category": "Theft / Fraud"
-    },
-    {
-      "num": 86,
-      "name": "PEREZ, LOUIS FERNANDO",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "city": "Fort Worth",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 87,
-      "name": "PERKINS, DONALD DION",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJ",
-      "city": "Fort Worth",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 88,
-      "name": "POGWIZD, JAMES PAUL",
-      "date": "6/14/2026",
-      "charges": "CRIMINAL MISCHIEF >=$100<$750, CRIMINAL TRESPASS",
-      "city": "Arlington",
       "charge_category": "Other / Unknown"
     },
     {
-      "num": 89,
-      "name": "POWERS, AUSTIN PAUL",
-      "date": "6/14/2026",
-      "charges": "UNL CARRYING WEAPON, DRIVING WHILE INTOXICATED 2ND",
-      "city": "Arlington",
-      "charge_category": "DWI / Alcohol"
+      "num": 105,
+      "name": "PEGGESE, JOHNATHAN EDWARD",
+      "date": "6/17/2026",
+      "charges": "ONLINE SOLICIT OF A MINOR SEXUAL CONDUCT",
+      "city": "Fort Worth",
+      "charge_category": "Other / Unknown"
     },
     {
-      "num": 90,
-      "name": "REED, CHRISTOPHER DALE",
-      "date": "6/14/2026",
+      "num": 106,
+      "name": "PEREZ, AARON",
+      "date": "6/17/2026",
+      "charges": "AGG ASSAULT W/DEADLY WEAPON",
+      "city": "Arlington",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 107,
+      "name": "POLK, TIARRA WYNAE",
+      "date": "6/17/2026",
       "charges": "POSS MARIJ <2OZ",
       "city": "Fort Worth",
       "charge_category": "Drugs / Possession"
     },
     {
-      "num": 91,
-      "name": "REHMAN, KHURAM SALIM",
-      "date": "6/14/2026",
-      "charges": "POSS CS PG 2 >= 1G<4G",
-      "city": "Euless",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 92,
-      "name": "ROBERSON, CHARLES C",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED 2ND, POSS CS PG 1/1-B <1G",
-      "city": "Arlington",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 93,
-      "name": "ROBERSON, DEQUANTRAVOS TRESHUN",
-      "date": "6/14/2026",
-      "charges": "26-0285111 FUGITIVE, POSS MARIJ <2OZ, UNL CARRYING WEAPON",
-      "city": "Irving",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 94,
-      "name": "ROGEL, OMAR GOMEZ",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "city": "Haltom City",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 95,
-      "name": "ROSE, JERIMIE",
-      "date": "6/14/2026",
-      "charges": "POSS CS PG 2 >= 4G<400G, POSS MARIJ <2OZ",
-      "city": "Fort Worth",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 96,
-      "name": "ROSS, ALVIN JEROME",
-      "date": "6/14/2026",
-      "charges": "POSS CS PG 1/1-B <1G, POSS MARIJ <2OZ",
-      "city": "Dallas",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 97,
-      "name": "RUCKER, BILLI GENIECE",
-      "date": "6/14/2026",
-      "charges": "POSS MARIJ <2OZ, TAMPER/FABRICATE PHYS EVID W/INTENT TO IMPAIR",
-      "city": "Arlington",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 98,
-      "name": "RUDD, DONALD ROCKFORDEDWARD",
-      "date": "6/14/2026",
-      "charges": "ASSAULT FAM/HOUSE MEM IMPEDE BREATH/CIRCULAT",
-      "city": "Fort Worth",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 99,
-      "name": "SALAS, ALEXANDER JAXSON",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED",
-      "city": "Boyd",
-      "charge_category": "DWI / Alcohol"
-    },
-    {
-      "num": 100,
-      "name": "SANCHEZ, EZEQUIEL",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "city": "Arlington",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 101,
-      "name": "SAYLESS, KAMERON KEYSHAWN",
-      "date": "6/14/2026",
-      "charges": "26-0285183 BURGLARY OF VEHICLES, FAIL TO IDENTIFY FUGITIVE INTENT GIVE FALSE INFO, UNL CARRYING WEAPON",
-      "city": "Crowley",
-      "charge_category": "Theft / Fraud"
-    },
-    {
-      "num": 102,
-      "name": "SCHMIDT, CHELSIE",
-      "date": "6/14/2026",
-      "charges": "ABNDN/ENDANGR CHLD INDV INT/KNOW/RECK/CRIM NEG",
-      "city": "White Settlement",
+      "num": 108,
+      "name": "PRICER, AUSTIN MICHAEL",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL TRESPASS, UNL USE OF CRIMINAL INSTRUMENT",
+      "city": "Sachse",
       "charge_category": "Other / Unknown"
     },
     {
-      "num": 103,
-      "name": "SEGURA, MARTIN RYAN",
-      "date": "6/14/2026",
+      "num": 109,
+      "name": "PRITCHETT, DEBORAH KAYE",
+      "date": "6/17/2026",
+      "charges": "THEFT OF SERV >=$100<$750",
+      "city": "Tool",
+      "charge_category": "Theft / Fraud"
+    },
+    {
+      "num": 110,
+      "name": "REESE, DENNISON EUGENE",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B <1G",
+      "city": "Arlington",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 111,
+      "name": "RICHARDSON, ARTHUR",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL TRESPASS",
+      "city": "Fort Worth",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 112,
+      "name": "RIOS, RICHARD MICHAEL",
+      "date": "6/17/2026",
+      "charges": "ASSAULT FAM/HOUSE MEM IMPEDE BREATH/CIRCULAT, VIOL BOND/PROTECTIVE ORDER",
+      "city": "Unknown",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 113,
+      "name": "RODRIGUEZ, ADAM CHRISTIAN",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED",
+      "city": "Fort Worth",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 114,
+      "name": "ROGERSROBINSON, XAVIER DEON",
+      "date": "6/17/2026",
+      "charges": "CONTINUOUS VIOLENCE AGAINST THE FAMILY",
+      "city": "Fort Worth",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 115,
+      "name": "ROMANQUINONES, EMILIO JUNIOR",
+      "date": "6/17/2026",
+      "charges": "26-0285687 ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE, BURGLARY OF HABITATION, THEFT PROP >=$100<$750",
+      "city": "Arlington",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 116,
+      "name": "ROMINES, DAVID CHRISTIAN",
+      "date": "6/17/2026",
+      "charges": "FAIL TO IDENTIFY FUGITIVE INTENT GIVE FALSE INFO",
+      "city": "Mansfield",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 117,
+      "name": "RUSSELL, GLEN",
+      "date": "6/17/2026",
+      "charges": "POSS DANGEROUS DRUG, POSS MARIJ <2OZ",
+      "city": "Arlington",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 118,
+      "name": "SANGHA, HARJIT",
+      "date": "6/17/2026",
+      "charges": "UNL CARRYING WEAPON",
+      "city": "Azle",
+      "charge_category": "Weapons"
+    },
+    {
+      "num": 119,
+      "name": "SANTOS, JERRY",
+      "date": "6/17/2026",
+      "charges": "ENGAGING IN ORGANIZED CRIMINAL ACTIVITY, FINANCIAL ABUSE ELDERLY >=$150K",
+      "city": "Unknown",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 120,
+      "name": "SCIVALLY, RYAN AUSTIN",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED 2ND",
+      "city": "Hurst",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 121,
+      "name": "SMITH, JOSH DEQUEAZ",
+      "date": "6/17/2026",
+      "charges": "PAROLE VIOLATION, UNL POSS FIREARM BY FELON",
+      "city": "Arlington",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 122,
+      "name": "SMITH, KERRY PATRICK",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B <1G",
+      "city": "Arlington",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 123,
+      "name": "SMITH, KOLYNN PAUL",
+      "date": "6/17/2026",
+      "charges": "THEFT PROP <$2,500 2/MORE PREV CONV",
+      "city": "Saginaw",
+      "charge_category": "Theft / Fraud"
+    },
+    {
+      "num": 124,
+      "name": "SOKAU, RYLAN",
+      "date": "6/17/2026",
+      "charges": "BURGLARY OF BUILDING",
+      "city": "Fort Worth",
+      "charge_category": "Theft / Fraud"
+    },
+    {
+      "num": 125,
+      "name": "STAMPS, RYAN",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B <1G, POSS CS PG 1/1-B >=1G<4G",
+      "city": "Arlington",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 126,
+      "name": "STANSBURY, AMANDA SHANE",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1 >=4G<200G",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 127,
+      "name": "STEADHAM, MICHAEL LAWRENCE",
+      "date": "6/17/2026",
+      "charges": "BURGLARY OF VEHICLES",
+      "city": "Ftw",
+      "charge_category": "Theft / Fraud"
+    },
+    {
+      "num": 128,
+      "name": "STEWARD, LAMARION SHAMEL",
+      "date": "6/17/2026",
       "charges": "AGG ASSAULT W/DEADLY WEAPON",
       "city": "Fort Worth",
       "charge_category": "Family Violence / Assault"
     },
     {
-      "num": 104,
-      "name": "SHELBY, SHA RON L",
-      "date": "6/14/2026",
-      "charges": "UNAUTH USE OF VEHICLE",
-      "city": "Grand Prairie",
-      "charge_category": "Other / Unknown"
-    },
-    {
-      "num": 105,
-      "name": "SOTO, RUBEN MIGUEL",
-      "date": "6/14/2026",
-      "charges": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
-      "city": "Forest Hill",
+      "num": 129,
+      "name": "STRANGE, ASHLEY N",
+      "date": "6/17/2026",
+      "charges": "FAIL TO IDENTIFY FUGITIVE FROM JUSTICE, ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+      "city": "Fort Worth",
       "charge_category": "Family Violence / Assault"
     },
     {
-      "num": 106,
-      "name": "TAYLOR, TRISTIAN",
-      "date": "6/14/2026",
+      "num": 130,
+      "name": "SUMBLIN, ANDRESEA KOKIE",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B <1G",
+      "city": "Grand Prairie",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 131,
+      "name": "TAPIA, GEORDAN",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED",
+      "city": "Arlington",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 132,
+      "name": "THOMPSON, ANDREW M",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1/1-B <1G",
+      "city": "Arlington",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 133,
+      "name": "THORPE, DE J",
+      "date": "6/17/2026",
+      "charges": "AGG ASSAULT W/DEADLY WEAPON",
+      "city": "Fort Worth",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 134,
+      "name": "TOGBA, ELKINS MAWOTE",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG1 <1G",
+      "city": "Godly",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 135,
+      "name": "TORRES, HALI RAQUEL",
+      "date": "6/17/2026",
+      "charges": "AGG ASSAULT W/DEADLY WEAPON",
+      "city": "Mansfield",
+      "charge_category": "Family Violence / Assault"
+    },
+    {
+      "num": 136,
+      "name": "TORREZDIAZ, LUIS ENRIQUE",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED/OPEN ALCH CONTAINER, RECKLESS DRIVING",
+      "city": "Fulshaer",
+      "charge_category": "DWI / Alcohol"
+    },
+    {
+      "num": 137,
+      "name": "TRAN, RYAN",
+      "date": "6/17/2026",
+      "charges": "CRIMINAL TRESPASS, UNL USE OF CRIMINAL INSTRUMENT",
+      "city": "Tx",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 138,
+      "name": "VALDERAS, RUTHIE",
+      "date": "6/17/2026",
+      "charges": "POSS CS PG 1-4G-PG1",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 139,
+      "name": "VALDEZ, MATTHEW",
+      "date": "6/17/2026",
       "charges": "PAROLE VIOLATION",
       "city": "Fort Worth",
       "charge_category": "Warrants / Court / Bond"
     },
     {
-      "num": 107,
-      "name": "THOMAS, DUSTIN DONOVAN",
-      "date": "6/14/2026",
-      "charges": "AGG SEXUAL ASSAULT, ASSAULT FAMILY/HOUSEHOLD MEMBER W/PREV CONV",
-      "city": "Tarrant Co",
+      "num": 140,
+      "name": "VALDEZ, THEODORE JOHN BAUTISTA",
+      "date": "6/17/2026",
+      "charges": "ASSAULT CAUSES BODILY INJ",
+      "city": "Fort Worth",
       "charge_category": "Family Violence / Assault"
     },
     {
-      "num": 108,
-      "name": "THOMAS, JONATHAN CORDERO",
-      "date": "6/14/2026",
-      "charges": "POSS MARIJ <2OZ",
+      "num": 141,
+      "name": "VARELA, JUAN ANTONIO",
+      "date": "6/17/2026",
+      "charges": "DRIVING WHILE INTOXICATED 3RD OR MORE IAT",
       "city": "Fort Worth",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 109,
-      "name": "THOMAS, KAYLLA CHRISTY",
-      "date": "6/14/2026",
-      "charges": "POSS MARIJ <2OZ",
-      "city": "Arlington",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 110,
-      "name": "TURNER, TYJUAN M",
-      "date": "6/14/2026",
-      "charges": "UNL POSS FIREARM BY FELON, POSS MARIJ >2OZ<=4OZ",
-      "city": "Fort Worth",
-      "charge_category": "Drugs / Possession"
-    },
-    {
-      "num": 111,
-      "name": "VALENTINALEJANDRO, JOSE EFRAIN",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED/OPEN ALCH CONTAINER",
-      "city": "Arlington",
       "charge_category": "DWI / Alcohol"
     },
     {
-      "num": 112,
-      "name": "VELASQUEZ, KRISTOPHER LORENZO",
-      "date": "6/14/2026",
-      "charges": "CONTINUOUS VIOLENCE AGAINST THE FAMILY",
-      "city": "Grand Prairie",
-      "charge_category": "Family Violence / Assault"
+      "num": 142,
+      "name": "VASSER, MARTEZ",
+      "date": "6/17/2026",
+      "charges": "EVADING ARREST DETENTION, MURDER",
+      "city": "Arlington",
+      "charge_category": "Evading / Resisting"
     },
     {
-      "num": 113,
-      "name": "VIZCARRONDOCOLON, JEANETTE",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED/OPEN ALCH CONTAINER",
-      "city": "Bedford",
-      "charge_category": "DWI / Alcohol"
+      "num": 143,
+      "name": "VAZQUEZ, ANGEL",
+      "date": "6/17/2026",
+      "charges": "PAROLE VIOLATION",
+      "city": "Fort Worth",
+      "charge_category": "Warrants / Court / Bond"
     },
     {
-      "num": 114,
-      "name": "WAGNER, CHRISTOPHER M",
-      "date": "6/14/2026",
-      "charges": "POSS CS PG 1/1-B <1G, POSS CS PG 1/1-B >=4G<200G",
-      "city": "Alvarado",
+      "num": 144,
+      "name": "WALLS, TONY",
+      "date": "6/17/2026",
+      "charges": "POSS DANGEROUS DRUG",
+      "city": "Ft Worth",
       "charge_category": "Drugs / Possession"
     },
     {
-      "num": 115,
-      "name": "WALKER, QUINETIRA",
-      "date": "6/14/2026",
-      "charges": "AGG ROBBERY",
-      "city": "Fort Worth",
-      "charge_category": "Theft / Fraud"
-    },
-    {
-      "num": 116,
-      "name": "WALKER, ROBIN NICOLE",
-      "date": "6/14/2026",
-      "charges": "AGG ASSAULT W/DEADLY WEAPON",
-      "city": "Fort Worth",
-      "charge_category": "Family Violence / Assault"
-    },
-    {
-      "num": 117,
-      "name": "WATKINS, LAKIMOTHY T",
-      "date": "6/14/2026",
-      "charges": "DUTY ON STRIKING UNATTENDED VEHICLE",
-      "city": "White Settlement",
+      "num": 145,
+      "name": "WELLS, RAVEN",
+      "date": "6/17/2026",
+      "charges": "FAIL TO IDENTIFY FUGITIVE INTENT GIVE FALSE INFO, HINDER APPREHENSION/PROSECUTION KNOWN FELON",
+      "city": "Fw",
       "charge_category": "Other / Unknown"
     },
     {
-      "num": 118,
-      "name": "WEBBER, DEMARCUS DEANGEL",
-      "date": "6/14/2026",
-      "charges": "DRIVING WHILE INTOXICATED/OPEN ALCH CONTAINER, UNL CARRYING WEAPON",
-      "city": "N Richland Hills",
-      "charge_category": "DWI / Alcohol"
+      "num": 146,
+      "name": "WEST, EASTON GILES",
+      "date": "6/17/2026",
+      "charges": "AGG ASSLT MV DISCH FRARM RKLS HAB/BLDG/VEH SBI",
+      "city": "Fort Worth",
+      "charge_category": "Other / Unknown"
     },
     {
-      "num": 119,
-      "name": "WOZNY, JONATHAN",
-      "date": "6/14/2026",
-      "charges": "AGG ASSAULT W/DEADLY WEAPON",
-      "city": "Ftw",
-      "charge_category": "Family Violence / Assault"
+      "num": 147,
+      "name": "WILLIAMS, FELICIA NICOLE",
+      "date": "6/17/2026",
+      "charges": "PAROLE VIOLATION",
+      "city": "Fort Worth",
+      "charge_category": "Warrants / Court / Bond"
+    },
+    {
+      "num": 148,
+      "name": "WILLIAMS, JOSEPH CORNELIUS",
+      "date": "6/17/2026",
+      "charges": "EVADING ARREST DET W/VEH, MAN DEL CS PG 2 >=4G<400G, POSS MARIJ >2OZ<=4OZ, RESIST ARREST SEARCH OR TRANSPORT",
+      "city": "Fort Worth",
+      "charge_category": "Drugs / Possession"
+    },
+    {
+      "num": 149,
+      "name": "WILSON, DEMETRIUS",
+      "date": "6/17/2026",
+      "charges": "DRIVING W/LIC INV W/PREV CONV/SUSP/W/O FIN RES, ENGAGING IN ORGANIZED CRIMINAL ACTIVITY",
+      "city": "Arlington",
+      "charge_category": "Other / Unknown"
+    },
+    {
+      "num": 150,
+      "name": "WITT, MAGDALENA",
+      "date": "6/17/2026",
+      "charges": "POSS MARIJ <2OZ, TAMPER/FABRICATE PHYS EVID W/INTENT TO IMPAIR",
+      "city": "Denton",
+      "charge_category": "Drugs / Possession"
     }
   ],
   "is_active": true,
