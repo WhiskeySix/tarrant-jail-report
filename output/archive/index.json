@@ -1,5 +1,12 @@
 [
   {
+    "arrests_date": "6/21/2026",
+    "report_date": "6/22/2026",
+    "total_bookings": 133,
+    "top_charge": "CRIMINAL TRESPASS",
+    "path": "output/archive/reports/2026-06-21/report.json"
+  },
+  {
     "arrests_date": "6/20/2026",
     "report_date": "6/21/2026",
     "total_bookings": 130,
