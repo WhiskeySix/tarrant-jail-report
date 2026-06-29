@@ -1,5 +1,12 @@
 [
   {
+    "arrests_date": "6/28/2026",
+    "report_date": "6/29/2026",
+    "total_bookings": 123,
+    "top_charge": "DRIVING WHILE INTOXICATED",
+    "path": "output/archive/reports/2026-06-28/report.json"
+  },
+  {
     "arrests_date": "6/27/2026",
     "report_date": "6/28/2026",
     "total_bookings": 112,
