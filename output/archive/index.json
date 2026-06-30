@@ -1,5 +1,12 @@
 [
   {
+    "arrests_date": "6/29/2026",
+    "report_date": "6/30/2026",
+    "total_bookings": 156,
+    "top_charge": "ASSAULT CAUSES BODILY INJURY FAMILY VIOLENCE",
+    "path": "output/archive/reports/2026-06-29/report.json"
+  },
+  {
     "arrests_date": "6/28/2026",
     "report_date": "6/29/2026",
     "total_bookings": 123,
