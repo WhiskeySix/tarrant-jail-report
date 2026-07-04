@@ -1,5 +1,12 @@
 [
   {
+    "arrests_date": "7/3/2026",
+    "report_date": "7/4/2026",
+    "total_bookings": 143,
+    "top_charge": "POSS MARIJ <2OZ",
+    "path": "output/archive/reports/2026-07-03/report.json"
+  },
+  {
     "arrests_date": "7/2/2026",
     "report_date": "7/3/2026",
     "total_bookings": 143,
